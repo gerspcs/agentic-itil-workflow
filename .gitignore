@@ -1,0 +1,15 @@
+# secrets and local config: never commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+# generated at run time
+workers/postmortems/
+ui/recordings/
+.run/
+__pycache__/
+*.pyc
+# local notes
+WIP.md
+CLAUDE.md

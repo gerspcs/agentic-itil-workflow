@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="ui-token" content="__TOKEN__">
+  <title>Agentic Incident Triage, live</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-mode="both">
+<header>
+  <div class="brand"><span class="logo" aria-hidden="true">🚨</span><div><h1>Agentic Incident Triage, live</h1><p class="sub">An AI agent and a human on call, sharing one process</p></div></div>
+  <div class="controls" role="toolbar" aria-label="Controls">
+    <button class="sc primary" data-sc="A" title="Send an alert the agent can fix on its own"></button>
+    <button class="sc" data-sc="B" title="Send an alert nothing matches"></button>
+    <button class="sc" data-sc="C" title="Send an alert whose standard fix fails"></button>
+    <button id="b-fast" title="Walk through the steps faster" aria-pressed="false">⏩ Faster</button>
+    <span class="sep" aria-hidden="true"></span>
+    <div class="seg" role="group" aria-label="Explanation level">
+      <button id="m-plain" aria-pressed="false">Plain</button><button id="m-both" aria-pressed="true">Both</button><button id="m-tech" aria-pressed="false">Technical</button>
+    </div>
+  </div>
+</header>
+<div id="banner" hidden></div>
+<main>
+  <section id="picker">
+    <h3>Pick an alert to send in <small>three real cases, each ending a different way</small></h3>
+    <p id="p-intro"></p>
+    <div id="cards"></div>
+    <form id="own" hidden>
+      <label for="own-text">Or describe your own incident</label>
+      <div class="ownrow"><input id="own-text" maxlength="500" placeholder="e.g. Search results are empty for about 5% of users since the last deploy" autocomplete="off"><button class="primary" type="submit">Send it</button></div>
+      <p class="hint">Live mode only. The text goes to your local engine and to TypeSafe. Nothing else.</p>
+    </form>
+  </section>
+  <section id="story" aria-live="polite" aria-atomic="true">
+    <div class="kicker"><span id="s-kicker"></span><span id="s-kind" class="chip"></span></div>
+    <h2 id="s-title"></h2>
+    <div class="twin">
+      <div class="card plain-card"><h4>In plain words</h4><p id="s-plain"></p><div id="r-plain" class="result"></div></div>
+      <div class="card tech-card"><h4>Technical</h4><p id="s-tech" class="mono"></p><div id="r-tech" class="result mono"></div></div>
+    </div>
+  </section>
+  <section id="gate" hidden aria-live="assertive">
+    <h3>Your turn <small>the process is waiting for a person</small></h3>
+    <p id="g-ask"></p><p id="g-tech" class="mono tech-only"></p>
+    <textarea id="g-text" rows="2" aria-label="Your answer"></textarea>
+    <p id="g-note"></p>
+    <div id="g-buttons"></div>
+  </section>
+  <section id="proc" aria-label="The process as a BPMN diagram">
+    <h3>The process <small>BPMN 2.0, the standard notation; the top lane is the agent, the bottom lane is you</small></h3>
+    <div id="bpmn" role="img" aria-label="BPMN diagram of the agentic incident triage process"></div>
+    <div class="legend"><span class="lg act">▶ working now</span><span class="lg dn">✓ done</span><span class="lg id">grey: not reached</span></div>
+  </section>
+  <section id="case" aria-label="Case file">
+    <h3>The case file <small id="c-sub"></small></h3>
+    <div id="tally"></div>
+    <dl id="ev"></dl>
+    <div id="verdict" hidden></div>
+  </section>
+</main>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

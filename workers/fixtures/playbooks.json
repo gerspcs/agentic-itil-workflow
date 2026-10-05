@@ -1,0 +1,30 @@
+[
+  {
+    "id": "restart-cache-node",
+    "symptoms": "A cache or session-store node is pegged at high CPU or memory, causing downstream request failures or timeouts on services that depend on it.",
+    "action": "Cordon and restart the affected cache node; downstream connections re-pool automatically.",
+    "reversible": true,
+    "expectedOutcome": "CPU on the affected node drops back under 40% within a few minutes, and the downstream error rate returns to baseline."
+  },
+  {
+    "id": "scale-out-web-tier",
+    "symptoms": "Web or API tier request latency or error rate is climbing under load, with healthy downstream dependencies (databases, caches) and no single failing node.",
+    "action": "Increase the web tier's replica count by 50% to spread load.",
+    "reversible": true,
+    "expectedOutcome": "Per-instance CPU and request latency drop as load spreads across more replicas within a couple of minutes."
+  },
+  {
+    "id": "clear-queue-backlog",
+    "symptoms": "A message queue or job queue is backing up, with consumers falling behind and processing latency growing.",
+    "action": "Temporarily add extra consumer workers to drain the backlog.",
+    "reversible": true,
+    "expectedOutcome": "Queue depth falls back toward zero and processing latency returns to normal within 10-15 minutes."
+  },
+  {
+    "id": "revoke-and-rotate-credential",
+    "symptoms": "A credential or access key appears compromised or is being misused (e.g. anomalous access patterns, leaked secret).",
+    "action": "Revoke the credential and rotate it to a new value across all consuming services.",
+    "reversible": false,
+    "expectedOutcome": "Anomalous access from the old credential stops immediately; services must be redeployed or reloaded with the new credential."
+  }
+]

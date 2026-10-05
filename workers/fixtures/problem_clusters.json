@@ -1,0 +1,14 @@
+[
+  {
+    "id": "PRB-CACHE-CPU",
+    "description": "Repeated incidents where a cache or session-store node's CPU saturates under normal-to-moderate load, causing downstream request failures, later traced to an undersized cache tier or a missing eviction policy."
+  },
+  {
+    "id": "PRB-QUEUE-BACKLOG",
+    "description": "Repeated incidents where a message or job queue backs up faster than consumers can drain it during traffic spikes, traced to a fixed consumer pool that doesn't scale with load."
+  },
+  {
+    "id": "PRB-COSMETIC-NOISE",
+    "description": "Low-impact, one-off timing or performance variance in background/batch jobs with no user-facing effect — expected variation, not a recurring pattern."
+  }
+]

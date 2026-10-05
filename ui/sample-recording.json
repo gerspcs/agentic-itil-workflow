@@ -1,0 +1,487 @@
+{
+ "meta": {
+  "recorded": "2026-10-05",
+  "note": "Final snapshots of real runs against Camunda 8 with live TypeSafe judgments."
+ },
+ "model": {
+  "flows": [
+   {
+    "id": "Flow_1",
+    "source": "StartEvent_Alert",
+    "target": "Task_Enrich",
+    "name": ""
+   },
+   {
+    "id": "Flow_2",
+    "source": "Task_Enrich",
+    "target": "Task_ClassifySeverity",
+    "name": ""
+   },
+   {
+    "id": "Flow_3",
+    "source": "Task_ClassifySeverity",
+    "target": "Task_MatchPattern",
+    "name": ""
+   },
+   {
+    "id": "Flow_4",
+    "source": "Task_MatchPattern",
+    "target": "Gateway_AutoCandidate",
+    "name": ""
+   },
+   {
+    "id": "Flow_ToAutoRemediate",
+    "source": "Gateway_AutoCandidate",
+    "target": "Task_AutoRemediate",
+    "name": "confidence \u2265 0.8 & reversible"
+   },
+   {
+    "id": "Flow_ToHumanTriage",
+    "source": "Gateway_AutoCandidate",
+    "target": "Task_HumanTriage",
+    "name": "default"
+   },
+   {
+    "id": "Flow_5",
+    "source": "Task_AutoRemediate",
+    "target": "Task_VerifyFix",
+    "name": ""
+   },
+   {
+    "id": "Flow_6",
+    "source": "Task_VerifyFix",
+    "target": "Gateway_Resolved",
+    "name": ""
+   },
+   {
+    "id": "Flow_ResolvedYes",
+    "source": "Gateway_Resolved",
+    "target": "Gateway_Converge",
+    "name": "verified = true"
+   },
+   {
+    "id": "Flow_Escalate",
+    "source": "Gateway_Resolved",
+    "target": "Task_EscalateHuman",
+    "name": "default (not verified)"
+   },
+   {
+    "id": "Flow_7",
+    "source": "Task_HumanTriage",
+    "target": "Gateway_Converge",
+    "name": ""
+   },
+   {
+    "id": "Flow_8",
+    "source": "Task_EscalateHuman",
+    "target": "Gateway_Converge",
+    "name": ""
+   },
+   {
+    "id": "Flow_9",
+    "source": "Gateway_Converge",
+    "target": "Task_Postmortem",
+    "name": ""
+   },
+   {
+    "id": "Flow_10",
+    "source": "Task_Postmortem",
+    "target": "Task_ClusterProblem",
+    "name": ""
+   },
+   {
+    "id": "Flow_11",
+    "source": "Task_ClusterProblem",
+    "target": "Gateway_CSISignal",
+    "name": ""
+   },
+   {
+    "id": "Flow_CSIRaise",
+    "source": "Gateway_CSISignal",
+    "target": "Task_ConfirmRootCause",
+    "name": "cluster score \u2265 0.6"
+   },
+   {
+    "id": "Flow_NoAction",
+    "source": "Gateway_CSISignal",
+    "target": "End_ClosedNoAction",
+    "name": "default"
+   },
+   {
+    "id": "Flow_12",
+    "source": "Task_ConfirmRootCause",
+    "target": "End_ClosedCSI",
+    "name": ""
+   }
+  ]
+ },
+ "scenarios": {
+  "A": {
+   "snapshot": {
+    "ok": true,
+    "pi": "2251799813692483",
+    "status": "COMPLETED",
+    "elements": {
+     "StartEvent_Alert": "done",
+     "Task_Enrich": "done",
+     "Task_ClassifySeverity": "done",
+     "Task_MatchPattern": "done",
+     "Gateway_AutoCandidate": "done",
+     "Task_AutoRemediate": "done",
+     "Task_VerifyFix": "done",
+     "Gateway_Resolved": "done",
+     "Gateway_Converge": "done",
+     "Task_Postmortem": "done",
+     "Task_ClusterProblem": "done",
+     "Gateway_CSISignal": "done",
+     "Task_ConfirmRootCause": "done",
+     "End_ClosedCSI": "done"
+    },
+    "vars": {
+     "incidentDescription": "Payment API is returning HTTP 500 for roughly 12% of checkout requests over the last 10 minutes, and the error rate is climbing. The Redis cache node backing the session store is pegged at 100% CPU. No other services are affected yet.",
+     "fixOutcome": "works",
+     "serviceAreaGuess": "cache-tier",
+     "enrichedAt": "2026-10-05T19:41:11.501320+00:00",
+     "severityProbabilities": {
+      "cosmetic": 0,
+      "major": 1,
+      "critical": 0,
+      "minor": 0
+     },
+     "severityConfidence": 1,
+     "severity": "major",
+     "reversible": true,
+     "matchedPlaybookId": "restart-cache-node",
+     "matchConfidence": 0.94,
+     "actionTaken": "Cordon and restart the affected cache node; downstream connections re-pool automatically.",
+     "postActionTelemetry": "CPU on the affected node drops back under 40% within a few minutes, and the downstream error rate returns to baseline.",
+     "verified": true,
+     "verifyProbability": 0.95,
+     "postmortemPath": "workers/postmortems/2251799813692483.md",
+     "clusterScores": {
+      "PRB-CACHE-CPU": 0.99,
+      "PRB-QUEUE-BACKLOG": 0.395,
+      "PRB-COSMETIC-NOISE": 0.11
+     },
+     "matchedClusterId": "PRB-CACHE-CPU",
+     "clusterScore": 0.99,
+     "csiDecision": "Undersized cache tier and no eviction policy. Fund a permanent fix: resize it and add an eviction policy.",
+     "rootCauseConfirmed": true
+    },
+    "tasks": [],
+    "hasIncident": false,
+    "timeline": [
+     {
+      "id": "StartEvent_Alert",
+      "start": 1791229205717,
+      "end": 1791229205717
+     },
+     {
+      "id": "Task_Enrich",
+      "start": 1791229205717,
+      "end": 1791229271838
+     },
+     {
+      "id": "Task_ClassifySeverity",
+      "start": 1791229271838,
+      "end": 1791229272938
+     },
+     {
+      "id": "Task_MatchPattern",
+      "start": 1791229272938,
+      "end": 1791229274058
+     },
+     {
+      "id": "Gateway_AutoCandidate",
+      "start": 1791229274058,
+      "end": 1791229274058
+     },
+     {
+      "id": "Task_AutoRemediate",
+      "start": 1791229274058,
+      "end": 1791229274839
+     },
+     {
+      "id": "Task_VerifyFix",
+      "start": 1791229274839,
+      "end": 1791229275913
+     },
+     {
+      "id": "Gateway_Resolved",
+      "start": 1791229275913,
+      "end": 1791229275913
+     },
+     {
+      "id": "Gateway_Converge",
+      "start": 1791229275913,
+      "end": 1791229275913
+     },
+     {
+      "id": "Task_Postmortem",
+      "start": 1791229275913,
+      "end": 1791229276717
+     },
+     {
+      "id": "Task_ClusterProblem",
+      "start": 1791229276717,
+      "end": 1791229278413
+     },
+     {
+      "id": "Gateway_CSISignal",
+      "start": 1791229278413,
+      "end": 1791229278413
+     },
+     {
+      "id": "Task_ConfirmRootCause",
+      "start": 1791229278413,
+      "end": 1791229280429
+     },
+     {
+      "id": "End_ClosedCSI",
+      "start": 1791229280429,
+      "end": 1791229280429
+     }
+    ]
+   }
+  },
+  "B": {
+   "snapshot": {
+    "ok": true,
+    "pi": "2251799813692565",
+    "status": "COMPLETED",
+    "elements": {
+     "StartEvent_Alert": "done",
+     "Task_Enrich": "done",
+     "Task_ClassifySeverity": "done",
+     "Task_MatchPattern": "done",
+     "Gateway_AutoCandidate": "done",
+     "Task_HumanTriage": "done",
+     "Gateway_Converge": "done",
+     "Task_Postmortem": "done",
+     "Task_ClusterProblem": "done",
+     "Gateway_CSISignal": "done",
+     "End_ClosedNoAction": "done"
+    },
+    "vars": {
+     "incidentDescription": "Users in the EU region are reporting that photo uploads in the mobile app are slower than usual, sometimes taking a full minute. No errors are being logged, and the same feature works normally in other regions.",
+     "enrichedAt": "2026-10-05T19:41:21.223050+00:00",
+     "serviceAreaGuess": "unknown",
+     "severityConfidence": 0.46,
+     "severity": "minor",
+     "severityProbabilities": {
+      "critical": 0,
+      "minor": 0.59,
+      "cosmetic": 0,
+      "major": 0.41
+     },
+     "reversible": true,
+     "matchedPlaybookId": "scale-out-web-tier",
+     "matchConfidence": 0.28,
+     "triageOutcome": "Cold CDN edge cache in the EU region. Warmed the cache; no playbook needed.",
+     "postmortemPath": "workers/postmortems/2251799813692565.md",
+     "clusterScores": {
+      "PRB-CACHE-CPU": 0.46,
+      "PRB-QUEUE-BACKLOG": 0.47,
+      "PRB-COSMETIC-NOISE": 0.225
+     },
+     "matchedClusterId": "PRB-QUEUE-BACKLOG",
+     "clusterScore": 0.47
+    },
+    "tasks": [],
+    "hasIncident": false,
+    "timeline": [
+     {
+      "id": "StartEvent_Alert",
+      "start": 1791229281196,
+      "end": 1791229281196
+     },
+     {
+      "id": "Task_Enrich",
+      "start": 1791229281196,
+      "end": 1791229281556
+     },
+     {
+      "id": "Task_ClassifySeverity",
+      "start": 1791229281556,
+      "end": 1791229282653
+     },
+     {
+      "id": "Task_MatchPattern",
+      "start": 1791229282653,
+      "end": 1791229283734
+     },
+     {
+      "id": "Gateway_AutoCandidate",
+      "start": 1791229283734,
+      "end": 1791229283734
+     },
+     {
+      "id": "Task_HumanTriage",
+      "start": 1791229283734,
+      "end": 1791229285211
+     },
+     {
+      "id": "Gateway_Converge",
+      "start": 1791229285211,
+      "end": 1791229285211
+     },
+     {
+      "id": "Task_Postmortem",
+      "start": 1791229285211,
+      "end": 1791229306273
+     },
+     {
+      "id": "Task_ClusterProblem",
+      "start": 1791229306273,
+      "end": 1791229308012
+     },
+     {
+      "id": "Gateway_CSISignal",
+      "start": 1791229308012,
+      "end": 1791229308012
+     },
+     {
+      "id": "End_ClosedNoAction",
+      "start": 1791229308012,
+      "end": 1791229308012
+     }
+    ]
+   }
+  },
+  "C": {
+   "snapshot": {
+    "ok": true,
+    "pi": "2251799813692628",
+    "status": "COMPLETED",
+    "elements": {
+     "StartEvent_Alert": "done",
+     "Task_Enrich": "done",
+     "Task_ClassifySeverity": "done",
+     "Task_MatchPattern": "done",
+     "Gateway_AutoCandidate": "done",
+     "Task_AutoRemediate": "done",
+     "Task_VerifyFix": "done",
+     "Gateway_Resolved": "done",
+     "Task_EscalateHuman": "done",
+     "Gateway_Converge": "done",
+     "Task_Postmortem": "done",
+     "Task_ClusterProblem": "done",
+     "Gateway_CSISignal": "done",
+     "Task_ConfirmRootCause": "done",
+     "End_ClosedCSI": "done"
+    },
+    "vars": {
+     "incidentDescription": "Payment API is returning HTTP 500 for roughly 12% of checkout requests over the last 10 minutes, and the error rate is climbing. The Redis cache node backing the session store is pegged at 100% CPU. No other services are affected yet.",
+     "fixOutcome": "fails",
+     "serviceAreaGuess": "cache-tier",
+     "enrichedAt": "2026-10-05T19:41:48.691027+00:00",
+     "severityProbabilities": {
+      "critical": 0,
+      "minor": 0,
+      "major": 1,
+      "cosmetic": 0
+     },
+     "severityConfidence": 1,
+     "severity": "major",
+     "reversible": true,
+     "matchedPlaybookId": "restart-cache-node",
+     "matchConfidence": 0.94,
+     "actionTaken": "Cordon and restart the affected cache node; downstream connections re-pool automatically.",
+     "postActionTelemetry": "No significant change observed in the affected metric 5 minutes after the action; the original symptom is still present.",
+     "verified": false,
+     "verifyProbability": 0.04,
+     "triageOutcome": "The restart did not help. A runaway session-export job was holding the cache. Stopped the job.",
+     "postmortemPath": "workers/postmortems/2251799813692628.md",
+     "clusterScores": {
+      "PRB-CACHE-CPU": 0.995,
+      "PRB-QUEUE-BACKLOG": 0.3,
+      "PRB-COSMETIC-NOISE": 0.03
+     },
+     "matchedClusterId": "PRB-CACHE-CPU",
+     "clusterScore": 0.995,
+     "csiDecision": "Undersized cache tier and no eviction policy. Fund a permanent fix: resize it and add an eviction policy.",
+     "rootCauseConfirmed": true
+    },
+    "tasks": [],
+    "hasIncident": false,
+    "timeline": [
+     {
+      "id": "StartEvent_Alert",
+      "start": 1791229308660,
+      "end": 1791229308660
+     },
+     {
+      "id": "Task_Enrich",
+      "start": 1791229308660,
+      "end": 1791229309027
+     },
+     {
+      "id": "Task_ClassifySeverity",
+      "start": 1791229309027,
+      "end": 1791229310136
+     },
+     {
+      "id": "Task_MatchPattern",
+      "start": 1791229310136,
+      "end": 1791229311214
+     },
+     {
+      "id": "Gateway_AutoCandidate",
+      "start": 1791229311214,
+      "end": 1791229311214
+     },
+     {
+      "id": "Task_AutoRemediate",
+      "start": 1791229311214,
+      "end": 1791229311998
+     },
+     {
+      "id": "Task_VerifyFix",
+      "start": 1791229311998,
+      "end": 1791229313077
+     },
+     {
+      "id": "Gateway_Resolved",
+      "start": 1791229313077,
+      "end": 1791229313077
+     },
+     {
+      "id": "Task_EscalateHuman",
+      "start": 1791229313077,
+      "end": 1791229315185
+     },
+     {
+      "id": "Gateway_Converge",
+      "start": 1791229315185,
+      "end": 1791229315185
+     },
+     {
+      "id": "Task_Postmortem",
+      "start": 1791229315185,
+      "end": 1791229315551
+     },
+     {
+      "id": "Task_ClusterProblem",
+      "start": 1791229315551,
+      "end": 1791229317997
+     },
+     {
+      "id": "Gateway_CSISignal",
+      "start": 1791229317997,
+      "end": 1791229317997
+     },
+     {
+      "id": "Task_ConfirmRootCause",
+      "start": 1791229317997,
+      "end": 1791229319885
+     },
+     {
+      "id": "End_ClosedCSI",
+      "start": 1791229319885,
+      "end": 1791229319885
+     }
+    ]
+   }
+  }
+ }
+}

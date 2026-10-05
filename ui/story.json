@@ -1,0 +1,250 @@
+{
+  "idle": {
+    "title": "Press a scenario to send an alert into the process",
+    "plain": "Think of a hospital front desk. A patient walks in, a nurse checks them, a standard treatment is tried only if it is safe to undo, and a doctor steps in whenever the nurse is unsure. This page shows the same thing for a software incident.",
+    "technical": "Start publishes the message \"Alert (monitoring/event system)\" to Camunda 8. The message start event creates a process instance of Process_Incident. Everything you see is read live from the engine's REST API."
+  },
+  "done": {
+    "title": "The incident is closed, and a record exists",
+    "plain": "Every path ends the same way: a written record was made before the case closed. That is the rule the diagram enforces, not a habit.",
+    "technical": "The instance reached an end event. Every path passes Task_Postmortem first, so workers/postmortems/<processInstanceKey>.md exists for each run."
+  },
+  "scenarios": {
+    "A": {
+      "label": "1. A fix that works",
+      "plain": "A payment service is failing because a cache server is overloaded. The agent finds the standard fix, applies it and checks the result.",
+      "incident": "Payment API is returning HTTP 500 for roughly 12% of checkout requests over the last 10 minutes, and the error rate is climbing. The Redis cache node backing the session store is pegged at 100% CPU. No other services are affected yet.",
+      "fixOutcome": "works",
+      "watch": "Watch for: the agent acts alone, a second check agrees."
+    },
+    "B": {
+      "label": "2. Nothing matches",
+      "plain": "Photo uploads are slow in one region and nothing is logged as an error. No standard fix fits, so a person must decide.",
+      "incident": "Users in the EU region are reporting that photo uploads in the mobile app are slower than usual, sometimes taking a full minute. No errors are being logged, and the same feature works normally in other regions.",
+      "fixOutcome": null,
+      "watch": "Watch for: the agent does nothing, and says why."
+    },
+    "C": {
+      "label": "3. A fix that fails",
+      "plain": "The same cache problem, but this time the standard fix does not work. The agent must notice, and hand over instead of trying again.",
+      "incident": "Payment API is returning HTTP 500 for roughly 12% of checkout requests over the last 10 minutes, and the error rate is climbing. The Redis cache node backing the session store is pegged at 100% CPU. No other services are affected yet.",
+      "fixOutcome": "fails",
+      "watch": "Watch for: a fix that fails, and a hand-over instead of a retry."
+    }
+  },
+  "human": {
+    "Task_HumanTriage": {
+      "ask": "No standard fix matched, or it was not safe to undo. You are the on-call engineer. What did you find?",
+      "technical": "User task. Completing it sets triageOutcome. The Tasklist at the engine's own address shows the same task.",
+      "buttons": [
+        {
+          "label": "Send my diagnosis",
+          "confirm": true
+        }
+      ],
+      "defaults": {
+        "B": "Cold CDN edge cache in the EU region. Warmed the cache; no playbook needed.",
+        "default": "Diagnosed by hand; resolved without a playbook."
+      }
+    },
+    "Task_EscalateHuman": {
+      "ask": "The agent's fix did not clear the problem, so it stopped and handed over. You are the on-call engineer. What did you find?",
+      "technical": "User task. The independent verification said \"not resolved\" (verified = false), so the default flow of Gateway_Resolved routes here. Completing it sets triageOutcome.",
+      "buttons": [
+        {
+          "label": "Send my diagnosis",
+          "confirm": true
+        }
+      ],
+      "defaults": {
+        "default": "The restart did not help. A runaway session-export job was holding the cache. Stopped the job."
+      }
+    },
+    "Task_ConfirmRootCause": {
+      "ask": "The agent thinks this looks like a known, repeating problem. You decide whether it is worth fixing for good.",
+      "technical": "User task behind Gateway_CSISignal (clusterScore >= 0.6). Completing it sets rootCauseConfirmed and csiDecision. A human always prioritises; the agent never funds an improvement.",
+      "buttons": [
+        {
+          "label": "Confirm and fund a fix",
+          "confirm": true
+        },
+        {
+          "label": "Not now",
+          "confirm": false
+        }
+      ],
+      "defaults": {
+        "default": "Undersized cache tier and no eviction policy. Fund a permanent fix: resize it and add an eviction policy."
+      }
+    }
+  },
+  "steps": {
+    "StartEvent_Alert": {
+      "title": "An alert arrives",
+      "plain": "A monitoring system raises its hand: something is wrong. It is like a patient walking in the front door.",
+      "technical": "Message start event. The alert text arrives as the variable incidentDescription.",
+      "kind": "event",
+      "show": [
+        "incidentDescription"
+      ]
+    },
+    "Task_Enrich": {
+      "title": "Gathering context",
+      "plain": "A nurse takes a quick history before anyone decides anything. This step is plain code. No AI is involved, and none is pretended.",
+      "technical": "Service task, job type enrich-event. Keyword tagging puts the incident into a service area. Deterministic.",
+      "kind": "code",
+      "show": [
+        "serviceAreaGuess"
+      ]
+    },
+    "Task_ClassifySeverity": {
+      "title": "How serious is it?",
+      "plain": "The triage nurse picks one level: cosmetic, minor, major or critical. The AI is good at this kind of reading, and it also says how sure it is.",
+      "technical": "Business rule task, job type typesafe-classify-severity. A TypeSafe Choice picks one of four severities. Confidence shows how concentrated the answer is. It is not permission to act.",
+      "kind": "choice",
+      "show": [
+        "severity",
+        "severityConfidence",
+        "severityProbabilities"
+      ]
+    },
+    "Task_MatchPattern": {
+      "title": "Is there a standard fix for this?",
+      "plain": "Code first picks the one standard treatment that looks closest. Then the AI answers a single yes-or-no question: does this case really match that treatment? Whether the fix can be undone comes from the playbook itself, never from the AI.",
+      "technical": "Business rule task, job type typesafe-match-pattern. Code selects a candidate playbook (IDF-weighted word overlap over fixtures/playbooks.json). A TypeSafe Noul returns one probability that the incident matches it. reversible is read from the playbook.",
+      "kind": "noul",
+      "show": [
+        "matchedPlaybookId",
+        "matchConfidence",
+        "reversible"
+      ]
+    },
+    "Gateway_AutoCandidate": {
+      "title": "Gate 1: may the agent act alone?",
+      "plain": "Two things must both be true: the agent is very sure, and the fix can be undone. If either fails, a person takes over. A sure agent still may not do something that cannot be reversed.",
+      "technical": "Exclusive gateway. Condition: =matchConfidence >= 0.8 and reversible = true. The default flow goes to Task_HumanTriage. The gate is a visible condition in the diagram, not the model's output triggering the next step.",
+      "kind": "gate",
+      "show": [
+        "matchConfidence",
+        "reversible"
+      ]
+    },
+    "Task_AutoRemediate": {
+      "title": "Applying the standard fix",
+      "plain": "The agent carries out the playbook. In this lab the fix is simulated, because there is no real server to restart.",
+      "technical": "Service task, job type auto-remediate. Reads the matched playbook, \"runs\" it, and returns a synthetic post-action reading. Set fixOutcome to works or fails to pin the result; otherwise it works 80% of the time.",
+      "kind": "code",
+      "show": [
+        "actionTaken",
+        "postActionTelemetry"
+      ]
+    },
+    "Task_VerifyFix": {
+      "title": "Did it work?",
+      "plain": "A second, separate check looks at the numbers after the fix. The step that acted does not get to mark its own homework.",
+      "technical": "Business rule task, job type typesafe-verify-fix. A second TypeSafe Noul, with the post-action reading as its input. Probability >= 0.7 becomes verified = true.",
+      "kind": "noul",
+      "show": [
+        "verified",
+        "verifyProbability"
+      ]
+    },
+    "Gateway_Resolved": {
+      "title": "Gate 2: is it really fixed?",
+      "plain": "Fixed, and the record continues. Not fixed, and a person is called with the full story. The agent never just tries again in silence.",
+      "technical": "Exclusive gateway. Condition: =verified = true. The default flow escalates to Task_EscalateHuman.",
+      "kind": "gate",
+      "show": [
+        "verified",
+        "verifyProbability"
+      ]
+    },
+    "Task_HumanTriage": {
+      "title": "A person takes over",
+      "plain": "The case goes to the on-call engineer, who decides what to do. Nothing has been changed yet.",
+      "technical": "User task in the Human lane. Sets triageOutcome.",
+      "kind": "human",
+      "show": [
+        "triageOutcome"
+      ]
+    },
+    "Task_EscalateHuman": {
+      "title": "The fix failed, so a person takes over",
+      "plain": "The agent noticed its fix did not work and handed over with everything it knew.",
+      "technical": "User task in the Human lane. Reached through the default flow of Gateway_Resolved. Sets triageOutcome.",
+      "kind": "human",
+      "show": [
+        "triageOutcome"
+      ]
+    },
+    "Gateway_Converge": {
+      "title": "All paths join here",
+      "plain": "Fixed by the agent, solved by a person, or handed over after a failed fix: every case now goes to the same next step.",
+      "technical": "Converging exclusive gateway. No condition on the inbound flows.",
+      "kind": "gate",
+      "show": []
+    },
+    "Task_Postmortem": {
+      "title": "Writing the record, always",
+      "plain": "Every case gets a written record, whatever happened. There is no route through the diagram that skips it.",
+      "technical": "Service task, job type generate-postmortem. Writes workers/postmortems/<processInstanceKey>.md from every variable so far. Deterministic.",
+      "kind": "code",
+      "show": [
+        "postmortemPath"
+      ]
+    },
+    "Task_ClusterProblem": {
+      "title": "Have we seen this before?",
+      "plain": "The agent compares this case with known, repeating problems and scores how closely it matches each one. Like a ward checking whether this is the third case of the same infection.",
+      "technical": "Business rule task, job type typesafe-cluster-problem. One TypeSafe Score per known cluster (ordered three-level scale). The best score is normalised to clusterScore.",
+      "kind": "score",
+      "show": [
+        "matchedClusterId",
+        "clusterScore",
+        "clusterScores"
+      ]
+    },
+    "Gateway_CSISignal": {
+      "title": "Gate 3: worth a person's attention?",
+      "plain": "A strong match goes to a person to decide whether to fix the root cause. A weak match is closed, but the record still says so.",
+      "technical": "Exclusive gateway. Condition: =clusterScore >= 0.6. The default flow closes with no CSI action.",
+      "kind": "gate",
+      "show": [
+        "clusterScore"
+      ]
+    },
+    "Task_ConfirmRootCause": {
+      "title": "A person decides about a lasting fix",
+      "plain": "Only a person can decide whether a problem is worth fixing for good. The agent suggests; it never spends the money.",
+      "technical": "User task in the Human lane. Sets rootCauseConfirmed and csiDecision.",
+      "kind": "human",
+      "show": [
+        "rootCauseConfirmed",
+        "csiDecision"
+      ]
+    },
+    "End_ClosedNoAction": {
+      "title": "Closed, no further action",
+      "plain": "The case is closed. It was not a repeating problem, and the record says so.",
+      "technical": "End event. Reached through the default flow of Gateway_CSISignal.",
+      "kind": "event",
+      "show": []
+    },
+    "End_ClosedCSI": {
+      "title": "Closed, improvement proposed",
+      "plain": "The case is closed, and a person has made a call about preventing it next time.",
+      "technical": "End event. Reached after Task_ConfirmRootCause.",
+      "kind": "event",
+      "show": []
+    }
+  },
+  "kinds": {
+    "choice": "AI judgment: Choice",
+    "noul": "AI judgment: Noul (yes/no probability)",
+    "score": "AI judgment: Score",
+    "code": "Plain code",
+    "human": "A person",
+    "gate": "Gate (a visible rule)",
+    "event": "Start / end"
+  }
+}
