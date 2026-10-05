@@ -196,7 +196,7 @@
     "Task_ClusterProblem": {
       "title": "Have we seen this before?",
       "plain": "The agent compares this case with known, repeating problems and scores how closely it matches each one. Like a ward checking whether this is the third case of the same infection.",
-      "technical": "Business rule task, job type typesafe-cluster-problem. One TypeSafe Score per known cluster (ordered three-level scale). The best score is normalised to clusterScore.",
+      "technical": "Business rule task, job type typesafe-cluster-problem. One TypeSafe request carries one Score question per known cluster (ordered three-level scale). The best score is normalised to clusterScore. A cluster marked recurring: false forces it to 0.",
       "kind": "score",
       "show": [
         "matchedClusterId",

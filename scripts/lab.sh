@@ -8,7 +8,7 @@
 #   scripts/lab.sh worker                start the job worker in the background
 #   scripts/lab.sh ui                    start the live viewer (foreground) on http://127.0.0.1:8099
 #   scripts/lab.sh all                   check, setup, engine, deploy, worker, then the viewer
-#   scripts/lab.sh demo                  no engine, no key: the recorded replay on http://127.0.0.1:8000/ui/
+#   scripts/lab.sh demo                  no engine, no key: the recorded replay on http://127.0.0.1:8000/
 #   scripts/lab.sh status                what is running right now
 #   scripts/lab.sh teardown [flags]      dry run by default. Flags:
 #                                          --apply          really do it
@@ -143,10 +143,15 @@ cmd_setup() {
     cp "$ROOT/.env.example" "$ROOT/.env"; chmod 600 "$ROOT/.env"
     echo "Created .env from .env.example (mode 600, gitignored). Add your TYPESAFE_API_KEY to it."
   else pass ".env already exists (left untouched)"; fi
-  if ! c8ctl list profiles --json 2>/dev/null | grep -q "\"$PROFILE\""; then
-    c8ctl add profile "$PROFILE" --baseUrl "http://localhost:$C8_PORT" >/dev/null && echo "Added c8ctl profile '$PROFILE' -> http://localhost:$C8_PORT (your active profile is not changed)."
-    mkdir -p "$RUN"; echo "$PROFILE" > "$RUN/profile.added"
-  else pass "c8ctl profile '$PROFILE' exists"; fi
+  local url; url="$(profile_url)"
+  if [ -z "$url" ]; then
+    if c8ctl add profile "$PROFILE" --baseUrl "http://localhost:$C8_PORT" >/dev/null 2>&1; then
+      mkdir -p "$RUN"; echo "$PROFILE" > "$RUN/profile.added"
+      echo "Added c8ctl profile '$PROFILE' -> http://localhost:$C8_PORT (your active profile is not changed)."
+    else fail "could not add c8ctl profile '$PROFILE'"; return 1; fi
+  elif [ "${url%/v2}" != "http://localhost:$C8_PORT" ]; then
+    warn "c8ctl profile '$PROFILE' already exists and points at $url, not http://localhost:$C8_PORT. Leaving it alone. Set C8CTL_PROFILE=<a new name> in .env, then run setup again."
+  else pass "c8ctl profile '$PROFILE' exists and matches port $C8_PORT"; fi
   echo; echo "Setup done. Next: add your key to .env, then scripts/lab.sh all"
 }
 
@@ -167,6 +172,14 @@ cmd_engine() {
 
 c8() { c8ctl "$@" --profile "$PROFILE"; }
 
+profile_url() { # the base URL of c8ctl profile $PROFILE, or empty if there is no such profile
+  c8ctl list profiles --json 2>/dev/null | python3 -c "
+import sys, json
+try: print(next((p['URL'] for p in json.load(sys.stdin) if p['Name'] == sys.argv[1]), ''))
+except Exception: print('')" "$PROFILE"
+}
+proc_is() { ps -p "$1" -o args= 2>/dev/null | grep -q -- "$2"; }   # is PID $1 really the process we started?
+
 cmd_deploy() { c8 deploy "$ROOT/bpmn/agentic-incident-triage.bpmn"; }
 
 cmd_worker() {
@@ -180,12 +193,14 @@ cmd_worker() {
 
 cmd_ui() {
   echo "Live viewer on http://127.0.0.1:$UI_PORT (Ctrl+C to stop)"
-  CAMUNDA_REST="http://localhost:$C8_PORT/v2" C8CTL_PROFILE="$PROFILE" exec python3 "$ROOT/ui/server.py" --port "$UI_PORT"
+  mkdir -p "$RUN"; echo $$ > "$RUN/ui.pid"     # exec keeps this PID, so teardown can stop exactly this process
+  CAMUNDA_REST="$(envget CAMUNDA_REST "http://localhost:$C8_PORT/v2")" C8CTL_PROFILE="$PROFILE" exec python3 "$ROOT/ui/server.py" --port "$UI_PORT"
 }
 
 cmd_demo() {
-  echo "Replay demo (no engine, no key) on http://127.0.0.1:8000/ui/  (Ctrl+C to stop)"
-  cd "$ROOT" && exec python3 -m http.server 8000 --bind 127.0.0.1
+  echo "Replay demo (no engine, no key) on http://127.0.0.1:8000/  (Ctrl+C to stop)"
+  # Serve ONLY ui/. Serving the repo root would expose .env (your TypeSafe key) and .git.
+  exec python3 -m http.server 8000 --bind 127.0.0.1 --directory "$ROOT/ui"
 }
 
 cmd_all() { cmd_setup && cmd_engine && cmd_deploy && cmd_worker && cmd_ui; }
@@ -210,24 +225,37 @@ cmd_teardown() {
     local d="$1"; shift; did=1
     if [ $apply = 1 ]; then echo "  doing:  $d"; "$@" || echo "    (failed, continuing)"; else echo "  would:  $d"; fi
   }
-  if [ -f "$RUN/worker.pid" ] && kill -0 "$(cat "$RUN/worker.pid")" 2>/dev/null; then step "stop the worker (pid $(cat "$RUN/worker.pid"))" kill "$(cat "$RUN/worker.pid")"; fi
-  local upid; upid="$(pgrep -f "$ROOT/ui/server.py" | head -1 || true)"
-  [ -n "$upid" ] && step "stop the live viewer (pid $upid)" kill "$upid"
-  if [ -f "$RUN/engine.started" ]; then
-    step "stop the engine this lab started (c8run stop in $ENGINE_DIR; it stops any c8run engine on this machine)" bash -c "cd '$ENGINE_DIR' && ./c8run stop"
-  else echo "  skip:   engine was not started by this lab; leaving it alone"; fi
+  local wpid upid ours=0 running=0
+  wpid="$(cat "$RUN/worker.pid" 2>/dev/null || true)"; upid="$(cat "$RUN/ui.pid" 2>/dev/null || true)"
+  [ -f "$RUN/engine.started" ] && ours=1
+  engine_up && running=1
+  if [ -n "$wpid" ] && proc_is "$wpid" agentic_worker.py; then step "stop the worker (pid $wpid)" kill "$wpid"; fi
+  if [ -n "$upid" ] && proc_is "$upid" ui/server.py; then step "stop the live viewer (pid $upid)" kill "$upid"; fi
+  if [ $ours = 1 ]; then
+    step "stop the engine this lab started (c8run stop in $ENGINE_DIR)" bash -c "cd '$ENGINE_DIR' && ./c8run stop"
+  elif [ $running = 1 ]; then echo "  skip:   an engine is running that this lab did not start; leaving it alone"
+  fi
   [ -d "$ROOT/workers/postmortems" ] && step "delete generated postmortems: $(ls "$ROOT/workers/postmortems" | wc -l) file(s) in workers/postmortems/" rm -rf "$ROOT/workers/postmortems"
   [ -d "$ROOT/ui/recordings" ] && step "delete generated recordings: ui/recordings/" rm -rf "$ROOT/ui/recordings"
-  [ -d "$RUN" ] && step "delete run state and logs: .run/" bash -c "sleep 1; rm -rf '$RUN'"
-  if [ $purge = 1 ]; then step "wipe engine runtime data (c8ctl cluster purge $C8_VERSION; keeps the binary)" c8ctl cluster purge "$C8_VERSION"; fi
+  # Deep clean touches the engine's files, so it needs an engine that is not running, or one this lab is stopping above.
+  local deep_ok=0; { [ $ours = 1 ] || [ $running = 0 ]; } && deep_ok=1
+  if [ $purge = 1 ]; then
+    if [ $deep_ok = 1 ]; then step "wipe engine runtime data (c8ctl cluster purge $C8_VERSION; keeps the binary)" c8ctl cluster purge "$C8_VERSION"
+    else echo "  skip:   --purge-data: a running engine that this lab did not start owns that data"; fi
+  fi
   if [ $prof = 1 ]; then
-    if c8ctl list profiles --json 2>/dev/null | grep -q "\"$PROFILE\""; then step "remove c8ctl profile '$PROFILE'" c8ctl remove profile "$PROFILE"; else echo "  skip:   no c8ctl profile '$PROFILE'"; fi
+    if [ "$(cat "$RUN/profile.added" 2>/dev/null)" = "$PROFILE" ]; then step "remove c8ctl profile '$PROFILE' (this lab added it)" c8ctl remove profile "$PROFILE"
+    else echo "  skip:   --remove-profile: this lab did not add c8ctl profile '$PROFILE' (no marker), so it is not ours to remove"; fi
   fi
   [ $env = 1 ] && [ -f "$ROOT/.env" ] && step "delete .env (this removes your saved TypeSafe key from this machine)" rm -f "$ROOT/.env"
   if [ $eng = 1 ]; then
-    echo "  note:   ~/.cache/c8run may be shared with other projects ($(du -sh "$HOME/.cache/c8run" 2>/dev/null | cut -f1))"
-    step "delete the cached engine download ~/.cache/c8run/c8run-$C8_VERSION" rm -rf "$HOME/.cache/c8run/c8run-$C8_VERSION"
+    if [ $deep_ok = 1 ]; then
+      echo "  note:   ~/.cache/c8run may be shared with other projects ($(du -sh "$HOME/.cache/c8run" 2>/dev/null | cut -f1))"
+      step "delete the cached engine download ~/.cache/c8run/c8run-$C8_VERSION" rm -rf "$HOME/.cache/c8run/c8run-$C8_VERSION"
+    else echo "  skip:   --remove-engine: a running engine that this lab did not start is using those files"; fi
   fi
+  # .run/ goes last: the markers above are read from it.
+  [ -d "$RUN" ] && step "delete run state and logs: .run/" bash -c "sleep 1; rm -rf '$RUN'"
   echo
   echo "  never touched: c8ctl itself, Node, Java, Python, your TypeSafe account, your other c8ctl profiles."
   [ $did = 0 ] && echo "  Nothing to tear down."
@@ -239,5 +267,5 @@ case "${1:-help}" in
   check) cmd_check;; setup) cmd_setup;; engine) cmd_engine;; deploy) cmd_deploy;;
   worker) cmd_worker;; ui) cmd_ui;; demo) cmd_demo;; all) cmd_all;; status) cmd_status;;
   teardown) shift; cmd_teardown "$@";;
-  *) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//';;
+  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//';;
 esac

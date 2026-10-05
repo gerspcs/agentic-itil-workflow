@@ -7,8 +7,10 @@ Standard library only. Used by server.py (live viewer) and record_sample.py
 
 import json
 import os
+import re
 import sys
 import time
+import uuid
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -18,7 +20,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "workers"))
 import common  # noqa: E402  (shares .env handling with the worker)
 
-REST = (common.setting("CAMUNDA_REST") or "http://localhost:8080/v2").rstrip("/")
+REST = (common.setting("CAMUNDA_REST") or "http://localhost:%s/v2" % common.setting("C8_PORT", "8080")).rstrip("/")
 BPMN_FILE = os.path.join(ROOT, "bpmn", "agentic-incident-triage.bpmn")
 PROCESS_ID = "Process_Incident"
 NS = {"b": "http://www.omg.org/spec/BPMN/20100524/MODEL",
@@ -65,36 +67,47 @@ def load_model():
             nodes[el.get("id")] = {"type": tag, "name": (el.get("name") or "").replace("\n", " "),
                                    "job": td.get("type") if td is not None else None}
     message = root.find("b:message", NS)
-    return {"nodes": nodes, "flows": flows, "message": message.get("name") if message is not None else None}
+    # Gate thresholds are read from the model itself, so the page can never disagree with the engine.
+    thresholds = {}
+    for cond in root.iter("{%s}conditionExpression" % NS["b"]):
+        for var, num in re.findall(r"(\w+)\s*>=\s*([0-9.]+)", cond.text or ""):
+            thresholds[var] = float(num)
+    return {"nodes": nodes, "flows": flows, "thresholds": thresholds,
+            "message": message.get("name") if message is not None else None}
 
 
 MODEL = load_model()
 
 
 def start_incident(text, extra=None):
-    """Publish the alert message. Returns the new process instance key."""
-    t0 = time.time()
-    variables = {"incidentDescription": text, **(extra or {})}
+    """Publish the alert message. Returns the key of the process instance THIS message started.
+
+    A unique viewerRunId rides along as a variable, and the instance is found by that
+    value, so two quick clicks (or a concurrent c8ctl publish) cannot be mixed up."""
+    run_id = uuid.uuid4().hex
+    variables = {"incidentDescription": text, "viewerRunId": run_id, **(extra or {})}
     call("POST", "/messages/publication", {
-        "name": MODEL["message"], "correlationKey": "viewer-%d" % int(t0 * 1000),
+        "name": MODEL["message"], "correlationKey": "viewer-" + run_id,
         "timeToLive": 0, "variables": variables})
-    deadline = t0 + 15
+    deadline = time.time() + 15
     while time.time() < deadline:
         time.sleep(0.4)
-        found = call("POST", "/process-instances/search", {
-            "filter": {"processDefinitionId": PROCESS_ID},
-            "sort": [{"field": "startDate", "order": "DESC"}], "page": {"limit": 1}})
+        found = call("POST", "/variables/search", {
+            "filter": {"name": "viewerRunId", "value": json.dumps(run_id)}, "page": {"limit": 1}})
         for item in found.get("items", []):
-            started = item.get("startDate", "")
-            if started and _epoch(started) >= t0 - 1:
-                return item["processInstanceKey"]
+            return item["processInstanceKey"]
     raise RuntimeError("The engine accepted the alert but no process instance started. "
                        "Is the process deployed? (scripts/lab.sh deploy)")
 
 
 def _epoch(iso):
+    """ISO time to epoch seconds. Tolerates 'Z', '+0000' and more than six fractional digits,
+    which Python 3.9 and 3.10 cannot parse directly."""
     from datetime import datetime
-    return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+    iso = iso.replace("Z", "+00:00")
+    iso = re.sub(r"([+-]\d\d)(\d\d)$", r"\1:\2", iso)
+    iso = re.sub(r"(\.\d{6})\d+", r"\1", iso)
+    return datetime.fromisoformat(iso).timestamp()
 
 
 def snapshot(pi):
@@ -109,7 +122,7 @@ def snapshot(pi):
     elements = {}
     for e in els:
         if e["elementId"] in MODEL["nodes"]:
-            state = "active" if e["state"] == "ACTIVE" else "done"
+            state = "active" if e["state"] == "ACTIVE" else "done" if e["state"] == "COMPLETED" else "stopped"
             if elements.get(e["elementId"]) != "active":
                 elements[e["elementId"]] = state
     variables = {}
@@ -120,14 +133,15 @@ def snapshot(pi):
             variables[v["name"]] = v["value"]
     tasks = [{"key": u["userTaskKey"], "elementId": u["elementId"], "name": u["name"], "state": u["state"]}
              for u in uts if u["state"] in ("CREATED", "ASSIGNED")]
-    incident = any(e.get("hasIncident") for e in els)
+    incident = [e["elementId"] for e in els if e.get("hasIncident")]
     # Start/end instants per element, so the page can walk through fast steps
     # one at a time instead of jumping straight to the end state.
     timeline = [{"id": e["elementId"], "start": int(_epoch(e["startDate"]) * 1000),
-                 "end": int(_epoch(e["endDate"]) * 1000) if e.get("endDate") else None}
+                 "end": int(_epoch(e["endDate"]) * 1000) if e.get("endDate") else None,
+                 "ok": e["state"] != "TERMINATED"}
                 for e in els if e["elementId"] in MODEL["nodes"]]
     return {"ok": True, "pi": str(pi), "status": inst["state"], "elements": elements,
-            "vars": variables, "tasks": tasks, "hasIncident": incident, "timeline": timeline}
+            "vars": variables, "tasks": tasks, "incidentAt": incident, "timeline": timeline}
 
 
 def complete_human_task(pi, answer):

@@ -27,10 +27,10 @@ You do not need an account, a key or an engine for this. The demo replays three 
 ```bash
 git clone https://github.com/gerspcs/agentic-itil-workflow
 cd agentic-itil-workflow
-python3 -m http.server 8000 --bind 127.0.0.1
+python3 -m http.server 8000 --bind 127.0.0.1 --directory ui
 ```
 
-Open <http://127.0.0.1:8000/ui/>, pick a case, and watch. (`scripts/lab.sh demo` does the same.) When the process reaches a person, it stops and waits for you.
+Open <http://127.0.0.1:8000/>, pick a case, and watch. (`scripts/lab.sh demo` does the same.) Serve only the `ui` folder, as shown. Serving the repo root would also serve your `.env`. When the process reaches a person, it stops and waits for you.
 
 ---
 
@@ -175,7 +175,7 @@ Four things to know:
 
 - `.env` is listed in `.gitignore`. Check `git status` before any commit, and never paste the key into an issue, a chat or a log.
 - Only the incident text and the questions about it go to `api.typesafe.ai`. The engine runs locally.
-- One incident makes five or six TypeSafe calls: one each for severity, match and verify, and one per known problem cluster (three ship with the lab). Verify is skipped when no fix was tried.
+- One incident makes three or four TypeSafe requests: one each for severity, match and verify, and one that scores every known problem cluster together (three ship with the lab). Verify is skipped when no fix was tried.
 - If a key leaks, revoke it in your TypeSafe account and make a new one.
 
 ### Set up and start
@@ -200,7 +200,7 @@ scripts/lab.sh status    # what is running right now
 You can also drive the process without the viewer:
 
 ```bash
-c8ctl publish msg "Alert (monitoring/event system)" --correlationKey demo-1 \
+c8ctl publish msg "Alert (monitoring/event system)" --correlationKey demo-1 --profile agentic-lab \
   --variables '{"incidentDescription":"Payment API is returning HTTP 500 for 12% of checkouts. The Redis cache node is pegged at 100% CPU."}'
 ```
 
@@ -250,11 +250,11 @@ Everything that matters is a small file you can edit.
 |---|---|---|
 | A gate threshold (0.8, 0.6) | `bpmn/agentic-incident-triage.bpmn`, the `conditionExpression` of the flow | `scripts/lab.sh deploy` |
 | The standard fixes | `workers/fixtures/playbooks.json` | restart the worker |
-| The known repeating problems | `workers/fixtures/problem_clusters.json` | restart the worker |
+| The known repeating problems | `workers/fixtures/problem_clusters.json` (a cluster with `"recurring": false` means "ignore this" and can never raise a problem) | restart the worker |
 | What the AI is asked | the `h_*` handlers in `workers/agentic_worker.py` | restart the worker |
 | The three cases and the words on the page | `ui/story.json` | reload the page |
 
-Try this: lower gate 1 to `matchConfidence >= 0.5`, redeploy, and send case 2 again. Watch what changes. It is the quickest way to feel what a confidence threshold does.
+Try this: raise gate 1 to `matchConfidence >= 0.97`, redeploy, and send case 1 again. The match is the same, at 94%, and the fix is the same, but the agent now hands over to a person. The page reads the threshold from the model, so its explanation changes too. It is the quickest way to feel what a confidence threshold does.
 
 The fixtures stand in for the systems a real deployment would call: telemetry, a playbook catalogue, a problem tracker. The lab is about the wiring between judgment and gate, not about those integrations.
 
@@ -264,7 +264,7 @@ The fixtures stand in for the systems a real deployment would call: telemetry, a
 python3 -m unittest discover -s tests -v
 ```
 
-The tests need no engine and no key. They check candidate selection, the fix-outcome switch, how settings are read, that the page's story covers every element of the model, and that no private path or key sits in the tree.
+The tests need no engine and no key. They check candidate selection, the fix-outcome switch, how settings are read, how a failed TypeSafe call is handled, that the page's story covers every element of the model, and that no private path or key sits in the tree.
 
 ---
 

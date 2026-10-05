@@ -113,13 +113,17 @@
     "target": "End_ClosedCSI",
     "name": ""
    }
-  ]
+  ],
+  "thresholds": {
+   "matchConfidence": 0.8,
+   "clusterScore": 0.6
+  }
  },
  "scenarios": {
   "A": {
    "snapshot": {
     "ok": true,
-    "pi": "2251799813692483",
+    "pi": "2251799813693548",
     "status": "COMPLETED",
     "elements": {
      "StartEvent_Alert": "done",
@@ -140,13 +144,14 @@
     "vars": {
      "incidentDescription": "Payment API is returning HTTP 500 for roughly 12% of checkout requests over the last 10 minutes, and the error rate is climbing. The Redis cache node backing the session store is pegged at 100% CPU. No other services are affected yet.",
      "fixOutcome": "works",
+     "viewerRunId": "a2f9f73767ef40d28697179acf841d0c",
      "serviceAreaGuess": "cache-tier",
-     "enrichedAt": "2026-10-05T19:41:11.501320+00:00",
+     "enrichedAt": "2026-10-05T20:21:39.853781+00:00",
      "severityProbabilities": {
-      "cosmetic": 0,
-      "major": 1,
+      "minor": 0,
       "critical": 0,
-      "minor": 0
+      "cosmetic": 0,
+      "major": 1
      },
      "severityConfidence": 1,
      "severity": "major",
@@ -157,89 +162,103 @@
      "postActionTelemetry": "CPU on the affected node drops back under 40% within a few minutes, and the downstream error rate returns to baseline.",
      "verified": true,
      "verifyProbability": 0.95,
-     "postmortemPath": "workers/postmortems/2251799813692483.md",
+     "postmortemPath": "workers/postmortems/2251799813693548.md",
      "clusterScores": {
-      "PRB-CACHE-CPU": 0.99,
-      "PRB-QUEUE-BACKLOG": 0.395,
-      "PRB-COSMETIC-NOISE": 0.11
+      "PRB-CACHE-CPU": 0.995,
+      "PRB-QUEUE-BACKLOG": 0.13,
+      "PRB-COSMETIC-NOISE": 0.025
      },
      "matchedClusterId": "PRB-CACHE-CPU",
-     "clusterScore": 0.99,
+     "clusterScore": 0.995,
      "csiDecision": "Undersized cache tier and no eviction policy. Fund a permanent fix: resize it and add an eviction policy.",
      "rootCauseConfirmed": true
     },
     "tasks": [],
-    "hasIncident": false,
+    "incidentAt": [],
     "timeline": [
      {
       "id": "StartEvent_Alert",
-      "start": 1791229205717,
-      "end": 1791229205717
+      "start": 1791231645890,
+      "end": 1791231645890,
+      "ok": true
      },
      {
       "id": "Task_Enrich",
-      "start": 1791229205717,
-      "end": 1791229271838
+      "start": 1791231645890,
+      "end": 1791231700186,
+      "ok": true
      },
      {
       "id": "Task_ClassifySeverity",
-      "start": 1791229271838,
-      "end": 1791229272938
+      "start": 1791231700186,
+      "end": 1791231701289,
+      "ok": true
      },
      {
       "id": "Task_MatchPattern",
-      "start": 1791229272938,
-      "end": 1791229274058
+      "start": 1791231701289,
+      "end": 1791231702379,
+      "ok": true
      },
      {
       "id": "Gateway_AutoCandidate",
-      "start": 1791229274058,
-      "end": 1791229274058
+      "start": 1791231702379,
+      "end": 1791231702379,
+      "ok": true
      },
      {
       "id": "Task_AutoRemediate",
-      "start": 1791229274058,
-      "end": 1791229274839
+      "start": 1791231702379,
+      "end": 1791231703171,
+      "ok": true
      },
      {
       "id": "Task_VerifyFix",
-      "start": 1791229274839,
-      "end": 1791229275913
+      "start": 1791231703171,
+      "end": 1791231704204,
+      "ok": true
      },
      {
       "id": "Gateway_Resolved",
-      "start": 1791229275913,
-      "end": 1791229275913
+      "start": 1791231704204,
+      "end": 1791231704204,
+      "ok": true
      },
      {
       "id": "Gateway_Converge",
-      "start": 1791229275913,
-      "end": 1791229275913
+      "start": 1791231704204,
+      "end": 1791231704204,
+      "ok": true
      },
      {
       "id": "Task_Postmortem",
-      "start": 1791229275913,
-      "end": 1791229276717
+      "start": 1791231704204,
+      "end": 1791231705011,
+      "ok": true
      },
      {
       "id": "Task_ClusterProblem",
-      "start": 1791229276717,
-      "end": 1791229278413
+      "start": 1791231705011,
+      "end": 1791231706222,
+      "ok": true
      },
      {
       "id": "Gateway_CSISignal",
-      "start": 1791229278413,
-      "end": 1791229278413
+      "start": 1791231706222,
+      "end": 1791231706222,
+      "ok": true
      },
      {
       "id": "Task_ConfirmRootCause",
-      "start": 1791229278413,
-      "end": 1791229280429
+      "start": 1791231706222,
+      "end": 1791231708397,
+      "ok": true
      },
      {
       "id": "End_ClosedCSI",
-      "start": 1791229280429,
-      "end": 1791229280429
+      "start": 1791231708397,
+      "end": 1791231708397,
+      "ok": true
      }
     ]
    }
@@ -247,7 +266,7 @@
   "B": {
    "snapshot": {
     "ok": true,
-    "pi": "2251799813692565",
+    "pi": "2251799813693632",
     "status": "COMPLETED",
     "elements": {
      "StartEvent_Alert": "done",
@@ -263,87 +282,99 @@
      "End_ClosedNoAction": "done"
     },
     "vars": {
+     "viewerRunId": "136ff37266064713ad8dce427aaca29b",
      "incidentDescription": "Users in the EU region are reporting that photo uploads in the mobile app are slower than usual, sometimes taking a full minute. No errors are being logged, and the same feature works normally in other regions.",
-     "enrichedAt": "2026-10-05T19:41:21.223050+00:00",
+     "enrichedAt": "2026-10-05T20:21:49.918969+00:00",
      "serviceAreaGuess": "unknown",
-     "severityConfidence": 0.46,
+     "severityConfidence": 0.49,
      "severity": "minor",
      "severityProbabilities": {
+      "minor": 0.62,
       "critical": 0,
-      "minor": 0.59,
-      "cosmetic": 0,
-      "major": 0.41
+      "major": 0.38,
+      "cosmetic": 0
      },
      "reversible": true,
      "matchedPlaybookId": "scale-out-web-tier",
-     "matchConfidence": 0.28,
+     "matchConfidence": 0.31,
      "triageOutcome": "Cold CDN edge cache in the EU region. Warmed the cache; no playbook needed.",
-     "postmortemPath": "workers/postmortems/2251799813692565.md",
+     "postmortemPath": "workers/postmortems/2251799813693632.md",
      "clusterScores": {
-      "PRB-CACHE-CPU": 0.46,
-      "PRB-QUEUE-BACKLOG": 0.47,
-      "PRB-COSMETIC-NOISE": 0.225
+      "PRB-CACHE-CPU": 0.415,
+      "PRB-QUEUE-BACKLOG": 0.35,
+      "PRB-COSMETIC-NOISE": 0.33
      },
-     "matchedClusterId": "PRB-QUEUE-BACKLOG",
-     "clusterScore": 0.47
+     "matchedClusterId": "PRB-CACHE-CPU",
+     "clusterScore": 0.415
     },
     "tasks": [],
-    "hasIncident": false,
+    "incidentAt": [],
     "timeline": [
      {
       "id": "StartEvent_Alert",
-      "start": 1791229281196,
-      "end": 1791229281196
+      "start": 1791231709897,
+      "end": 1791231709897,
+      "ok": true
      },
      {
       "id": "Task_Enrich",
-      "start": 1791229281196,
-      "end": 1791229281556
+      "start": 1791231709897,
+      "end": 1791231710255,
+      "ok": true
      },
      {
       "id": "Task_ClassifySeverity",
-      "start": 1791229281556,
-      "end": 1791229282653
+      "start": 1791231710255,
+      "end": 1791231711286,
+      "ok": true
      },
      {
       "id": "Task_MatchPattern",
-      "start": 1791229282653,
-      "end": 1791229283734
+      "start": 1791231711286,
+      "end": 1791231712403,
+      "ok": true
      },
      {
       "id": "Gateway_AutoCandidate",
-      "start": 1791229283734,
-      "end": 1791229283734
+      "start": 1791231712403,
+      "end": 1791231712403,
+      "ok": true
      },
      {
       "id": "Task_HumanTriage",
-      "start": 1791229283734,
-      "end": 1791229285211
+      "start": 1791231712403,
+      "end": 1791231714238,
+      "ok": true
      },
      {
       "id": "Gateway_Converge",
-      "start": 1791229285211,
-      "end": 1791229285211
+      "start": 1791231714238,
+      "end": 1791231714238,
+      "ok": true
      },
      {
       "id": "Task_Postmortem",
-      "start": 1791229285211,
-      "end": 1791229306273
+      "start": 1791231714238,
+      "end": 1791231734316,
+      "ok": true
      },
      {
       "id": "Task_ClusterProblem",
-      "start": 1791229306273,
-      "end": 1791229308012
+      "start": 1791231734316,
+      "end": 1791231735439,
+      "ok": true
      },
      {
       "id": "Gateway_CSISignal",
-      "start": 1791229308012,
-      "end": 1791229308012
+      "start": 1791231735439,
+      "end": 1791231735439,
+      "ok": true
      },
      {
       "id": "End_ClosedNoAction",
-      "start": 1791229308012,
-      "end": 1791229308012
+      "start": 1791231735439,
+      "end": 1791231735439,
+      "ok": true
      }
     ]
    }
@@ -351,7 +382,7 @@
   "C": {
    "snapshot": {
     "ok": true,
-    "pi": "2251799813692628",
+    "pi": "2251799813693694",
     "status": "COMPLETED",
     "elements": {
      "StartEvent_Alert": "done",
@@ -373,13 +404,14 @@
     "vars": {
      "incidentDescription": "Payment API is returning HTTP 500 for roughly 12% of checkout requests over the last 10 minutes, and the error rate is climbing. The Redis cache node backing the session store is pegged at 100% CPU. No other services are affected yet.",
      "fixOutcome": "fails",
+     "viewerRunId": "963b26d22543435090e9c9ba0201ba56",
      "serviceAreaGuess": "cache-tier",
-     "enrichedAt": "2026-10-05T19:41:48.691027+00:00",
+     "enrichedAt": "2026-10-05T20:22:16.174274+00:00",
      "severityProbabilities": {
       "critical": 0,
       "minor": 0,
-      "major": 1,
-      "cosmetic": 0
+      "cosmetic": 0,
+      "major": 1
      },
      "severityConfidence": 1,
      "severity": "major",
@@ -389,96 +421,111 @@
      "actionTaken": "Cordon and restart the affected cache node; downstream connections re-pool automatically.",
      "postActionTelemetry": "No significant change observed in the affected metric 5 minutes after the action; the original symptom is still present.",
      "verified": false,
-     "verifyProbability": 0.04,
+     "verifyProbability": 0.03,
      "triageOutcome": "The restart did not help. A runaway session-export job was holding the cache. Stopped the job.",
-     "postmortemPath": "workers/postmortems/2251799813692628.md",
+     "postmortemPath": "workers/postmortems/2251799813693694.md",
      "clusterScores": {
-      "PRB-CACHE-CPU": 0.995,
-      "PRB-QUEUE-BACKLOG": 0.3,
-      "PRB-COSMETIC-NOISE": 0.03
+      "PRB-CACHE-CPU": 1,
+      "PRB-QUEUE-BACKLOG": 0.11,
+      "PRB-COSMETIC-NOISE": 0.005
      },
+     "clusterScore": 1,
      "matchedClusterId": "PRB-CACHE-CPU",
-     "clusterScore": 0.995,
      "csiDecision": "Undersized cache tier and no eviction policy. Fund a permanent fix: resize it and add an eviction policy.",
      "rootCauseConfirmed": true
     },
     "tasks": [],
-    "hasIncident": false,
+    "incidentAt": [],
     "timeline": [
      {
       "id": "StartEvent_Alert",
-      "start": 1791229308660,
-      "end": 1791229308660
+      "start": 1791231736143,
+      "end": 1791231736143,
+      "ok": true
      },
      {
       "id": "Task_Enrich",
-      "start": 1791229308660,
-      "end": 1791229309027
+      "start": 1791231736143,
+      "end": 1791231736494,
+      "ok": true
      },
      {
       "id": "Task_ClassifySeverity",
-      "start": 1791229309027,
-      "end": 1791229310136
+      "start": 1791231736494,
+      "end": 1791231739262,
+      "ok": true
      },
      {
       "id": "Task_MatchPattern",
-      "start": 1791229310136,
-      "end": 1791229311214
+      "start": 1791231739262,
+      "end": 1791231740353,
+      "ok": true
      },
      {
       "id": "Gateway_AutoCandidate",
-      "start": 1791229311214,
-      "end": 1791229311214
+      "start": 1791231740353,
+      "end": 1791231740353,
+      "ok": true
      },
      {
       "id": "Task_AutoRemediate",
-      "start": 1791229311214,
-      "end": 1791229311998
+      "start": 1791231740353,
+      "end": 1791231741141,
+      "ok": true
      },
      {
       "id": "Task_VerifyFix",
-      "start": 1791229311998,
-      "end": 1791229313077
+      "start": 1791231741141,
+      "end": 1791231742235,
+      "ok": true
      },
      {
       "id": "Gateway_Resolved",
-      "start": 1791229313077,
-      "end": 1791229313077
+      "start": 1791231742235,
+      "end": 1791231742235,
+      "ok": true
      },
      {
       "id": "Task_EscalateHuman",
-      "start": 1791229313077,
-      "end": 1791229315185
+      "start": 1791231742235,
+      "end": 1791231744061,
+      "ok": true
      },
      {
       "id": "Gateway_Converge",
-      "start": 1791229315185,
-      "end": 1791229315185
+      "start": 1791231744061,
+      "end": 1791231744061,
+      "ok": true
      },
      {
       "id": "Task_Postmortem",
-      "start": 1791229315185,
-      "end": 1791229315551
+      "start": 1791231744061,
+      "end": 1791231744423,
+      "ok": true
      },
      {
       "id": "Task_ClusterProblem",
-      "start": 1791229315551,
-      "end": 1791229317997
+      "start": 1791231744423,
+      "end": 1791231745547,
+      "ok": true
      },
      {
       "id": "Gateway_CSISignal",
-      "start": 1791229317997,
-      "end": 1791229317997
+      "start": 1791231745547,
+      "end": 1791231745547,
+      "ok": true
      },
      {
       "id": "Task_ConfirmRootCause",
-      "start": 1791229317997,
-      "end": 1791229319885
+      "start": 1791231745547,
+      "end": 1791231747284,
+      "ok": true
      },
      {
       "id": "End_ClosedCSI",
-      "start": 1791229319885,
-      "end": 1791229319885
+      "start": 1791231747284,
+      "end": 1791231747284,
+      "ok": true
      }
     ]
    }

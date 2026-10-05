@@ -11,20 +11,21 @@
   let STEP_MS = 650;                 // one process step at a time, so a person can follow
   const AI = ["choice", "noul", "score"];
 
-  let story, flows = [], backend = false, recording = null, mode = store.get("mode", "both");
+  let story, flows = [], thresholds = { matchConfidence: 0.8, clusterScore: 0.6 }, backend = false, recording = null, mode = store.get("mode", "both");
   let run = null;                    // { snap, events, k, scenario, released:Set, speed, replay }
   let ticker = null, poller = null, pinned = null;
 
   const say = (v, d) => (v === undefined || v === null ? d : v);
-  const pct = (x) => (Number(x) >= 1 ? "100" : Math.min(99, Math.round(Number(x) * 100))) + "%";   // never round 99.5% up to a certainty
+  const pct = (x) => (Number(x) >= 1 ? "100" : Math.floor(Number(x) * 100)) + "%";   // round DOWN: 79.6% must not read as 80%, 99.5% not as a certainty
+  const gate = (k) => Math.round(thresholds[k] * 100) + "%";
   const sure = (c) => (c >= 0.9 ? "very sure" : c >= 0.65 ? "fairly sure" : "not very sure");
 
   async function getJson(url) { const r = await fetch(url); if (!r.ok) throw new Error(url); return r.json(); }
 
   async function init() {
     story = await getJson("story.json");
-    try { const m = await getJson("api/model"); backend = true; flows = m.flows; if (!m.engine) banner("The viewer is running, but it cannot reach the Camunda engine at " + m.rest + ". Run scripts/lab.sh engine."); } catch { backend = false; }
-    if (!backend) { recording = await getJson("sample-recording.json"); flows = recording.model.flows; banner("Demo mode: you are watching recordings of real runs. To run it live, follow the README (scripts/lab.sh all)."); }
+    try { const m = await getJson("api/model"); backend = true; flows = m.flows; thresholds = m.thresholds || thresholds; if (!m.engine) banner("The viewer is running, but it cannot reach the Camunda engine at " + m.rest + ". Run scripts/lab.sh engine."); } catch { backend = false; }
+    if (!backend) { recording = await getJson("sample-recording.json"); flows = recording.model.flows; thresholds = recording.model.thresholds || thresholds; banner("Demo mode: you are watching recordings of real runs. To run it live, follow the README (scripts/lab.sh all)."); }
     const svg = await (await fetch("diagram.svg")).text();
     $("#bpmn").innerHTML = svg.slice(svg.indexOf("<svg"));
     document.querySelectorAll(".sc").forEach((b) => { b.textContent = story.scenarios[b.dataset.sc].label; b.onclick = () => start(b.dataset.sc); });
@@ -68,22 +69,26 @@
     document.querySelectorAll(".sc").forEach((b) => { b.disabled = false; });
     render();
   }
-  function blank(sc, replay) { return { snap: null, events: [], k: 0, scenario: sc, released: new Set(), speed: 1, replay }; }
+  function blank(sc, replay) { return { snap: null, events: [], k: 0, scenario: sc, released: new Set(), answered: new Set(), speed: 1, replay }; }
   function attach(snap, sc, replay) { run = blank(sc, !!replay); ingest(snap); if (!replay) { schedule(); poll(); } else schedule(); render(); }
   function stop() { clearInterval(ticker); clearTimeout(poller); ticker = poller = null; run = null; }
 
   function poll() {
     clearTimeout(poller);
     poller = setTimeout(async () => {
-      if (!run || run.replay) return;
-      try { const s = await getJson("api/state"); if (s.ok && s.pi) ingest(s); else if (!s.ok) banner(s.error); else banner(""); } catch { banner("Lost the connection to the lab server. Retrying…"); }
-      if (run && !(run.snap && run.snap.status !== "ACTIVE" && run.k >= run.events.length)) poll();
+      const mine = run; if (!mine || mine.replay) return;
+      let s = null;
+      try { s = await getJson("api/state"); banner(""); } catch { banner("Lost the connection to the lab server. Retrying…"); }
+      if (run !== mine) return;                      // the person started another run while this poll was in flight
+      if (s && s.ok && s.pi) { ingest(s); banner(s.incidentAt && s.incidentAt.length ? "The engine reports a problem at " + s.incidentAt.join(", ") + ": a job failed (see .run/worker.log, or Camunda's Operate). The process is stuck until it is resolved." : ""); }
+      else if (s && !s.ok) banner(s.error);
+      if (run === mine && !(mine.snap && mine.snap.status !== "ACTIVE" && mine.k >= mine.events.length)) poll();
     }, 800);
   }
 
   function buildEvents(timeline) {
     const ev = [];
-    for (const e of timeline) { ev.push({ t: e.start, id: e.id, kind: "start" }); if (e.end) ev.push({ t: e.end, id: e.id, kind: "end" }); }
+    for (const e of timeline) { ev.push({ t: e.start, id: e.id, kind: "start" }); if (e.end) ev.push({ t: e.end, id: e.id, kind: "end", ok: e.ok !== false }); }
     // Instant steps (gateways) start and end in the same millisecond, and a step can end the
     // instant the next one starts. Ties are broken by position in the process, then start-before-end.
     const rank = ranks();
@@ -111,7 +116,7 @@
   }
 
   function stateAt(k) {
-    const el = {}; for (let i = 0; i < k; i++) { const e = run.events[i]; el[e.id] = e.kind === "start" ? "active" : "done"; } return el;
+    const el = {}; for (let i = 0; i < k; i++) { const e = run.events[i]; el[e.id] = e.kind === "start" ? "active" : e.ok === false ? "stopped" : "done"; } return el;
   }
 
   /* ---------- rendering ---------- */
@@ -119,12 +124,13 @@
     renderButtons();
     $("#picker").hidden = !!run; $("#story").hidden = !run;
     const el = run ? stateAt(run.k) : {};
-    const finished = !!(run && run.snap && run.snap.status !== "ACTIVE" && run.k >= run.events.length);
+    const over = !!(run && run.snap && run.snap.status !== "ACTIVE" && run.k >= run.events.length);
+    const finished = over && run.snap.status === "COMPLETED";
     const last = run && run.k > 0 ? run.events[run.k - 1] : null;
     renderBpmn(el, last);
     renderStory(pinned ? { id: pinned } : last, finished && !pinned, el);
     renderGate(el);
-    renderCase(el, finished);
+    renderCase(el, finished, over);
   }
 
   function renderButtons() {
@@ -140,12 +146,29 @@
       if (last && last.id === id) g.classList.add("focus");
       g.classList.toggle("pinned", pinned === id);
     });
+    const taken = run ? takenFlows(el) : new Set();
     flows.forEach((f) => {
       const g = document.querySelector('#bpmn g.djs-element[data-element-id="' + f.id + '"]'); if (!g) return;
-      const taken = el[f.source] === "done" && el[f.target];
+      const isTaken = taken.has(f.id);
       g.classList.remove("fl-idle", "fl-active", "fl-done");
-      g.classList.add(!taken ? "fl-idle" : el[f.target] === "active" ? "fl-active" : "fl-done");
+      g.classList.add(!isTaken ? "fl-idle" : el[f.target] === "active" ? "fl-active" : "fl-done");
     });
+  }
+
+  /* Which sequence flow did the token actually use to reach each step? Where several flows lead into
+     one step (a merge), it is the one whose source finished most recently, not every flow whose
+     source was finished. */
+  function takenFlows(el) {
+    const startT = {}, endT = {}, rank = ranks();
+    for (let i = 0; i < run.k; i++) { const e = run.events[i]; (e.kind === "start" ? startT : endT)[e.id] = e.t; }
+    const out = new Set();
+    for (const id of Object.keys(startT)) {
+      const cands = flows.filter((f) => f.target === id && endT[f.source] !== undefined && endT[f.source] <= startT[id]);
+      if (!cands.length) continue;
+      cands.sort((a, b) => endT[b.source] - endT[a.source] || (rank[b.source] || 0) - (rank[a.source] || 0));
+      out.add(cands[0].id);
+    }
+    return out;
   }
 
   function lines(id, v, plain) {
@@ -158,14 +181,14 @@
       case "Task_Enrich": if (has("serviceAreaGuess")) add("Looks like it is in the " + v.serviceAreaGuess + "."); break;
       case "Task_ClassifySeverity": if (has("severity")) add("Verdict: " + v.severity.toUpperCase() + " (" + sure(v.severityConfidence) + ")."); break;
       case "Task_MatchPattern": if (has("matchedPlaybookId")) { add("Closest standard fix: " + v.matchedPlaybookId + "."); add("How well it fits: " + pct(v.matchConfidence) + ". Can it be undone? " + (v.reversible ? "Yes." : "No.")); } break;
-      case "Gateway_AutoCandidate": if (has("matchConfidence")) add(v.matchConfidence >= 0.8 && v.reversible ? "Sure enough (" + pct(v.matchConfidence) + " is at least 80%) and it can be undone, so the agent may act." : "Not sure enough, or it cannot be undone, so a person takes over."); break;
+      case "Gateway_AutoCandidate": if (has("matchConfidence")) add(v.matchConfidence >= thresholds.matchConfidence && v.reversible ? "Sure enough (" + pct(v.matchConfidence) + " against a rule of " + gate("matchConfidence") + ") and it can be undone, so the agent may act." : "Not sure enough, or it cannot be undone, so a person takes over."); break;
       case "Task_AutoRemediate": if (has("actionTaken")) { add("Did: " + v.actionTaken); add("Afterwards: " + v.postActionTelemetry); } break;
       case "Task_VerifyFix": if (has("verified")) add(v.verified ? "The check says it is fixed (" + pct(v.verifyProbability) + " sure)." : "The check says it is NOT fixed (only " + pct(v.verifyProbability) + " sure it worked)."); break;
       case "Gateway_Resolved": if (has("verified")) add(v.verified ? "Fixed, so the process moves on to the record." : "Not fixed, so a person is called. No silent retry."); break;
       case "Task_HumanTriage": case "Task_EscalateHuman": if (has("triageOutcome")) add("The engineer wrote: “" + v.triageOutcome + "”"); break;
       case "Task_Postmortem": if (has("postmortemPath")) add("Saved as " + v.postmortemPath); break;
       case "Task_ClusterProblem": if (has("matchedClusterId")) add("Closest known repeating problem: " + v.matchedClusterId + " (" + pct(v.clusterScore) + " match)."); break;
-      case "Gateway_CSISignal": if (has("clusterScore")) add(v.clusterScore >= 0.6 ? "A strong match (" + pct(v.clusterScore) + " is at least 60%), so a person decides about a lasting fix." : "A weak match (" + pct(v.clusterScore) + "), so the case closes with a note that nothing more is needed."); break;
+      case "Gateway_CSISignal": if (has("clusterScore")) add(v.clusterScore >= thresholds.clusterScore ? "A strong match (" + pct(v.clusterScore) + " against a rule of " + gate("clusterScore") + "), so a person decides about a lasting fix." : "A weak match (" + pct(v.clusterScore) + " against a rule of " + gate("clusterScore") + "), so the case closes with a note that nothing more is needed."); break;
       case "Task_ConfirmRootCause": if (has("csiDecision")) add((v.rootCauseConfirmed ? "Confirmed: " : "Not now: ") + "“" + v.csiDecision + "”"); break;
       default: break;
     }
@@ -191,7 +214,7 @@
   }
 
   function renderGate(el) {
-    const g = $("#gate"), open = run && Object.keys(story.human).find((id) => el[id] === "active");
+    const g = $("#gate"), open = run && Object.keys(story.human).find((id) => el[id] === "active" && !run.answered.has(id));
     g.hidden = !open; if (!open) { g.dataset.id = ""; return; }
     if (g.dataset.id === open) return;               // keep what the person is typing
     g.dataset.id = open;
@@ -209,11 +232,11 @@
     if (run.replay) { run.released.add(id); $("#gate").dataset.id = ""; $("#gate").hidden = true; return; }
     try {
       const r = await (await fetch("api/human", { method: "POST", headers: { "X-UI-Token": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ text, confirm }) })).json();
-      if (!r.ok) toast(r.message || "That did not work."); else { $("#gate").hidden = true; $("#gate").dataset.id = ""; }
+      if (!r.ok) toast(r.message || "That did not work."); else { run.answered.add(id); $("#gate").hidden = true; $("#gate").dataset.id = ""; }
     } catch { toast("Could not reach the lab server."); }
   }
 
-  function renderCase(el, finished) {
+  function renderCase(el, finished, over) {
     const v = (run && run.snap && run.snap.vars) || {}, done = (id) => el[id] === "done";
     const tally = $("#tally"); tally.textContent = "";
     const n = { ai: 0, code: 0, human: 0, gate: 0 };
@@ -233,7 +256,8 @@
     if (done("Task_Postmortem")) row(T ? "postmortemPath" : "Written record", say(v.postmortemPath, ""));
     if (done("Task_ClusterProblem")) row(T ? "clusterScore (Score)" : "Known repeating problem?", v.matchedClusterId + " · " + pct(v.clusterScore));
     if (done("Task_ConfirmRootCause")) row(T ? "csiDecision" : "Decision on a lasting fix", (v.rootCauseConfirmed ? "Funded: " : "Not now: ") + say(v.csiDecision, ""));
-    const vd = $("#verdict"); vd.hidden = !finished;
+    const vd = $("#verdict"); vd.hidden = !over;
+    if (over && !finished) { vd.className = "warn"; vd.textContent = "This run did not finish normally (the engine reports it as " + run.snap.status.toLowerCase() + "). Nothing above should be read as a result."; return; }
     if (finished) {
       const agent = !!el.Task_AutoRemediate, fixed = v.verified === true, csi = !!el.Task_ConfirmRootCause;
       const parts = [agent ? (fixed ? "The agent fixed it on its own and an independent check agreed." : "The agent tried a fix, the check said it had not worked, and a person took over.") : "No safe standard fix matched, so a person handled it from the start.",
@@ -241,9 +265,9 @@
       vd.className = fixed || !agent ? "good" : "warn"; vd.textContent = "";
       vd.append(mk("strong", null, "How this case went. "), document.createTextNode(parts.join(" ")));
       let leash;
-      if (agent && fixed) leash = "Why the agent was allowed to act: it was " + pct(v.matchConfidence) + " sure of the match (the rule needs 80%) and the fix could be undone. Both had to be true.";
+      if (agent && fixed) leash = "Why the agent was allowed to act: it was " + pct(v.matchConfidence) + " sure of the match (the rule needs " + gate("matchConfidence") + ") and the fix could be undone. Both had to be true.";
       else if (agent) leash = "Why this was safe: a second, separate check judged the fix, and found it only " + pct(v.verifyProbability) + " likely to have worked. The agent handed over instead of trying again.";
-      else leash = "Why the agent did not act: it was only " + pct(v.matchConfidence) + " sure of the match (the rule needs 80%), or the fix could not be undone. Doing nothing was the safe answer.";
+      else leash = "Why the agent did not act: it was only " + pct(v.matchConfidence) + " sure of the match (the rule needs " + gate("matchConfidence") + "), or the fix could not be undone. Doing nothing was the safe answer.";
       vd.append(mk("span", "leash", leash));
     }
   }

@@ -47,7 +47,7 @@ def main():
     if not lab.engine_up():
         sys.exit("Cannot reach the engine at %s" % lab.REST)
     out = {"meta": {"recorded": str(date.today()), "note": "Final snapshots of real runs against Camunda 8 with live TypeSafe judgments."},
-           "model": {"flows": lab.MODEL["flows"]}, "scenarios": {}}
+           "model": {"flows": lab.MODEL["flows"], "thresholds": lab.MODEL["thresholds"]}, "scenarios": {}}
     for key, sc in STORY["scenarios"].items():
         snap = run_scenario(key, sc)
         print("  ->", snap["status"], "verified=%s severity=%s cluster=%s" % (snap["vars"].get("verified"), snap["vars"].get("severity"), snap["vars"].get("clusterScore")))

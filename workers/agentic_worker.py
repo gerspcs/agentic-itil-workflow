@@ -94,14 +94,15 @@ def _select_candidate(incident_text, candidates, text_field):
 
 def h_enrich_event(job, api_key):
     description = job["Variables"].get("incidentDescription", "")
-    lowered = description.lower()
-    if any(w in lowered for w in ("cache", "redis", "session store")):
+    words = _tokenize(description)       # whole words, so "key" does not match "keyboard"
+    phrases = description.lower()
+    if words & {"cache", "redis"} or "session store" in phrases:
         area = "cache-tier"
-    elif any(w in lowered for w in ("queue", "backlog", "consumer")):
+    elif words & {"queue", "backlog", "consumer"}:
         area = "queue-tier"
-    elif any(w in lowered for w in ("web", "api", "checkout", "request")):
+    elif words & {"web", "api", "checkout", "request", "requests"}:
         area = "web-tier"
-    elif any(w in lowered for w in ("credential", "key", "token", "access")):
+    elif words & {"credential", "credentials", "key", "keys", "token", "tokens", "access"}:
         area = "identity"
     else:
         area = "unknown"
@@ -124,7 +125,9 @@ def h_auto_remediate(job, api_key):
     # A caller can pin the outcome with the optional `fixOutcome` variable
     # ("works" or "fails"); the viewer's third scenario uses this.
     forced = job["Variables"].get("fixOutcome")
-    works = (forced == "works") if forced in ("works", "fails") else random.random() < 0.8
+    # Seeded by the job key, so if the engine hands this job out twice the outcome is the same.
+    roll = random.Random(job["Key"]).random()
+    works = (forced == "works") if forced in ("works", "fails") else roll < 0.8
     if works:
         telemetry = playbook["expectedOutcome"]
     else:
@@ -157,8 +160,8 @@ def h_generate_postmortem(job, api_key):
         lines.append(f"**Verified resolved:** {v['verified']} (probability {v.get('verifyProbability', '?')})")
     if "triageOutcome" in v:
         lines.append(f"**Human triage outcome:** {v['triageOutcome']}")
-    if "rootCauseConfirmed" in v:
-        lines.append(f"**Root cause confirmed by human:** {v['rootCauseConfirmed']}")
+    # The record is written before the cluster check and the human CSI decision, so
+    # those live in the process variables (rootCauseConfirmed, csiDecision), not here.
 
     os.makedirs(POSTMORTEMS_DIR, exist_ok=True)
     path = os.path.join(POSTMORTEMS_DIR, f"{process_instance}.md")
@@ -175,7 +178,7 @@ def h_classify_severity(job, api_key):
         "severity",
         "Given `incident`, what severity should this incident be classified as?",
         SEVERITY_CRITERIA,
-        {"incident": incident},
+        {"incident": incident, "service_area": job["Variables"].get("serviceAreaGuess", "unknown")},
         api_key,
     )
     print(f"    TypeSafe Choice ({model}): severity={choice} confidence={confidence} probs={probabilities}")
@@ -192,7 +195,8 @@ def h_match_pattern(job, api_key):
         "Given `incident` and `candidate_playbook_symptoms`, does the incident closely "
         "match the described symptom pattern, confidently enough to trust this specific "
         "remediation playbook?",
-        {"incident": incident, "candidate_playbook_symptoms": candidate["symptoms"]},
+        {"incident": incident, "service_area": job["Variables"].get("serviceAreaGuess", "unknown"),
+         "candidate_playbook_symptoms": candidate["symptoms"]},
         api_key,
     )
     print(f"    TypeSafe Noul ({model}): matchConfidence={noul} candidate={candidate['id']} "
@@ -228,25 +232,36 @@ def h_cluster_problem(job, api_key):
     incident_summary = v.get("incidentDescription", "") + " " + v.get("postActionTelemetry", "")
     clusters = load_fixture("problem_clusters.json")
 
-    best = None  # (normalized_score, cluster_id, confidence, raw_score)
-    all_scores = {}
-    for cluster in clusters:
-        score, confidence, probabilities, model = common.typesafe_score(
-            "similarity",
-            "How similar is `incident_summary` to `known_cluster_description`?",
-            CLUSTER_SCORE_CRITERIA,
-            {"incident_summary": incident_summary, "known_cluster_description": cluster["description"]},
-            api_key,
-        )
-        normalized = score / (len(CLUSTER_SCORE_CRITERIA) - 1)
-        all_scores[cluster["id"]] = round(normalized, 3)
-        print(f"    TypeSafe Score ({model}): cluster={cluster['id']} score={score:.2f} "
-              f"(normalized {normalized:.2f}) confidence={confidence}")
-        if best is None or normalized > best[0]:
-            best = (normalized, cluster["id"], confidence, score)
+    # One request, one Score question per cluster: the questions are independent and read
+    # the same incident, so they are asked together (one round trip, well inside the job timeout).
+    state = {"incident_summary": incident_summary}
+    questions = {}
+    for n, cluster in enumerate(clusters):
+        state[f"cluster_{n}"] = cluster["description"]
+        questions[f"similarity_{n}"] = {
+            "type": "score",
+            "instructions": f"How similar is `incident_summary` to `cluster_{n}`?",
+            "criteria": CLUSTER_SCORE_CRITERIA,
+        }
+    answers, model = common.typesafe_ask(state, questions, api_key)
 
-    normalized, cluster_id, confidence, raw_score = best
-    return {"clusterScore": normalized, "matchedClusterId": cluster_id, "clusterScores": all_scores}
+    all_scores, best = {}, None   # best = (normalized, cluster)
+    for n, cluster in enumerate(clusters):
+        ans = answers[f"similarity_{n}"]
+        normalized = ans["score"] / (len(CLUSTER_SCORE_CRITERIA) - 1)
+        all_scores[cluster["id"]] = round(normalized, 3)
+        print(f"    TypeSafe Score ({model}): cluster={cluster['id']} score={ans['score']:.2f} "
+              f"(normalized {normalized:.2f}) confidence={ans.get('confidence')}")
+        if best is None or normalized > best[0]:
+            best = (normalized, cluster)
+
+    normalized, cluster = best
+    # A strong match to a cluster that means "not a recurring pattern" is a reason NOT to
+    # raise a problem record. It must never open the gate that asks a person to prioritise.
+    if not cluster.get("recurring", True):
+        print(f"    best match is {cluster['id']}, which is not a recurring problem: clusterScore forced to 0")
+        normalized = 0.0
+    return {"clusterScore": normalized, "matchedClusterId": cluster["id"], "clusterScores": all_scores}
 
 
 HANDLERS = {
@@ -284,7 +299,17 @@ def run_once(api_key):
         for job in jobs:
             job_key = job["Key"]
             print(f"[worker] {job_type} job {job_key} (pi {job['Process Instance']})")
-            result_vars = handler(job, api_key)
+            try:
+                result_vars = handler(job, api_key)
+            except Exception as e:       # a failed judgment must fail the JOB, not kill the worker
+                retries = max(int(job.get("Retries", 3)) - 1, 0)
+                print(f"[worker] {job_type} job {job_key} failed: {e} (retries left: {retries})")
+                try:
+                    common.c8ctl("fail", "job", str(job_key), "--retries", str(retries),
+                                 "--errorMessage", str(e)[:300])
+                except RuntimeError as e2:
+                    print(f"[worker] could not report the failure: {e2}")
+                continue
             common.complete_job(job_key, result_vars)
             print(f"[worker] {job_type} job {job_key}: completed with {result_vars}")
             handled += 1
@@ -308,7 +333,7 @@ def main():
         while True:
             try:
                 handled = run_once(api_key)
-            except RuntimeError as e:
+            except Exception as e:
                 # Transient engine or CLI trouble: say so, wait, try again.
                 # An unfinished job is re-activated by the engine after its timeout.
                 print(f"[worker] {e}; retrying in {POLL_INTERVAL_S * 3}s")

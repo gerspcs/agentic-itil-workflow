@@ -9,10 +9,10 @@ root (see `.env.example`). Nothing is read from outside this repository.
 import json
 import os
 import subprocess
+import urllib.error
 import urllib.request
 
 TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
-TYPESAFE_MODEL = os.getenv("TYPESAFE_MODEL") or "jev-latest"
 C8CTL_TIMEOUT_S = 30
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_FILE = os.path.join(REPO_ROOT, ".env")
@@ -39,6 +39,11 @@ def setting(name, default=""):
     return os.getenv(name) or _dotenv().get(name) or default
 
 
+def typesafe_model():
+    """Read at call time, so a model pinned in .env is honoured."""
+    return setting("TYPESAFE_MODEL", "jev-latest")
+
+
 def load_api_key():
     key = setting("TYPESAFE_API_KEY")
     if key:
@@ -53,16 +58,24 @@ def load_api_key():
 def typesafe_ask(state, questions, api_key):
     """One System One call. `questions` is the {id: {type, instructions, criteria}}
     map exactly as the API expects. Returns the raw `answers` dict."""
-    body = {"state": state, "model": TYPESAFE_MODEL, "questions": questions}
+    body = {"state": state, "model": typesafe_model(), "questions": questions}
     req = urllib.request.Request(
         TYPESAFE_URL,
         data=json.dumps(body).encode(),
         method="POST",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read())
-    return data["answers"], data.get("model")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+        return data["answers"], data.get("model")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"TypeSafe returned HTTP {e.code}"
+                           + (" (check TYPESAFE_API_KEY)" if e.code in (401, 403) else "")) from None
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise RuntimeError(f"TypeSafe call failed: {getattr(e, 'reason', e)}") from None
+    except (ValueError, KeyError):
+        raise RuntimeError("TypeSafe returned an answer in an unexpected shape") from None
 
 
 def typesafe_choice(question_id, instructions, criteria, state, api_key):

@@ -17,7 +17,6 @@ import mimetypes
 import os
 import secrets
 import sys
-import time
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -26,20 +25,12 @@ import lab
 HERE = lab.HERE
 TOKEN = secrets.token_urlsafe(16)
 STORY = json.load(open(os.path.join(HERE, "story.json")))
-REC_DIR = os.path.join(HERE, "recordings")
-STATE = {"pi": None, "frames": [], "t0": 0.0}
+STATE = {"pi": None}
 
 STATIC = {"/": "index.html", "/index.html": "index.html", "/style.css": "style.css",
           "/app.js": "app.js", "/story.json": "story.json", "/diagram.svg": "diagram.svg",
           "/sample-recording.json": "sample-recording.json"}
-
-
-def record(snap):
-    """Keep the finished run, for the Replay button (a snapshot is a whole run)."""
-    if snap["status"] != "ACTIVE":
-        os.makedirs(REC_DIR, exist_ok=True)
-        with open(os.path.join(REC_DIR, "latest.json"), "w") as f:
-            json.dump({"model": {"flows": lab.MODEL["flows"]}, "snapshot": snap}, f)
+ALLOWED_HOSTS = set()   # filled in main(): the only Host headers we answer to
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -57,7 +48,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _host_ok(self):
+        # Refuse any Host we did not bind to: this blocks DNS-rebinding pages from reading the
+        # per-session token out of "/" and then driving the lab.
+        if self.headers.get("Host", "") in ALLOWED_HOSTS:
+            return True
+        self._send(403, {"ok": False, "message": "Unexpected Host header."})
+        return False
+
     def do_GET(self):
+        if not self._host_ok():
+            return
         path = self.path.split("?")[0]
         if path in STATIC:
             fp = os.path.join(HERE, STATIC[path])
@@ -71,11 +72,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, **lab.MODEL, "engine": lab.engine_up(), "rest": lab.REST})
         if path == "/api/state":
             return self._state()
-        if path == "/api/recording":
-            fp = os.path.join(REC_DIR, "latest.json")
-            if os.path.exists(fp):
-                return self._send(200, open(fp, "rb").read())
-            return self._send(404, {"ok": False})
         self._send(404, {"ok": False})
 
     def _state(self):
@@ -88,10 +84,11 @@ class Handler(BaseHTTPRequestHandler):
             snap = lab.snapshot(STATE["pi"])
         except urllib.error.URLError as e:
             return self._send(200, {"ok": False, "error": str(e)})
-        record(snap)
         self._send(200, snap)
 
     def do_POST(self):
+        if not self._host_ok():
+            return
         if self.headers.get("X-UI-Token") != TOKEN:
             return self._send(403, {"ok": False, "message": "Bad or missing token. Reload the page."})
         n = int(self.headers.get("Content-Length") or 0)
@@ -109,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not sc:
                     return self._send(400, {"ok": False, "message": "Unknown scenario."})
                 extra = {"fixOutcome": sc["fixOutcome"]} if sc.get("fixOutcome") else {}
-                STATE.update(pi=lab.start_incident(sc["incident"], extra), frames=[], t0=time.time())
+                STATE.update(pi=lab.start_incident(sc["incident"], extra))
                 return self._send(200, {"ok": True, "pi": STATE["pi"]})
             if self.path == "/api/human":
                 if not STATE["pi"]:
@@ -126,6 +123,7 @@ def main():
     ap.add_argument("--port", type=int, default=8099)
     args = ap.parse_args()
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    ALLOWED_HOSTS.update({"127.0.0.1:%d" % args.port, "localhost:%d" % args.port})
     print("Live viewer on http://127.0.0.1:%d  (engine REST: %s)" % (args.port, lab.REST))
     print("Ctrl+C to stop.")
     try:

@@ -23,7 +23,7 @@ scripts/lab.sh deploy
 scripts/lab.sh worker     # needs TYPESAFE_API_KEY (see below)
 scripts/lab.sh ui         # foreground; start it in the background only if your tool supports that
 ```
-`scripts/lab.sh all` does setup through ui. `scripts/lab.sh demo` needs no engine and no key.
+`scripts/lab.sh all` does setup through ui. `scripts/lab.sh demo` needs no engine and no key (it serves only `ui/`, never the repo root).
 
 Report the **machine check result to the person before setup**. If it says FAIL, do not bypass it by lowering the thresholds in `scripts/lab.sh` unless they explicitly agree after you explain the risk (a swapping machine, an engine that dies of memory pressure).
 
@@ -53,7 +53,7 @@ The worker needs `TYPESAFE_API_KEY`. It is read from the environment first, then
 - **`c8ctl --json` keys are capitalised** (`Key`, `Variables`, `Process Instance`).
 - **`c8ctl activate jobs` returns a status object, not `[]`,** when there is nothing to activate. `common.activate_jobs` normalises it.
 - **`--fetchVariable` is an allow-list.** A variable missing from `ALL_VARIABLES` in `agentic_worker.py` silently never reaches a handler.
-- **A hung `c8ctl` call used to freeze the worker.** Every call now has a 30 second deadline and the loop retries.
+- **A hung `c8ctl` call used to freeze the worker.** Every call now has a 30 second deadline and the loop retries. A failed TypeSafe call now fails only its job (`c8ctl fail job`), which raises an incident after the retries; never let it kill the worker.
 - **Zeebe validates BPMN element order strictly.** A clean `bpmn-js` import is not enough; only a live deploy proves a hand-edited model.
 - **The search index lags the engine by a moment.** A completed user task can still appear open for a poll or two. Never answer the same task twice.
 - Word-overlap candidate selection must be IDF-weighted, or generic words pick the wrong playbook (covered by `tests/test_offline.py`).

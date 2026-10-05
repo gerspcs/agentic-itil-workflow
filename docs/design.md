@@ -42,7 +42,7 @@ Two rules follow, and both are load-bearing in the model.
 | Incident classification | Choice | The enriched event: symptom, service, recent deploys, prior incidents | Route, then fill known arguments. |
 | Incident pattern match (a remediation candidate) | Noul | The classified event and the catalogue of validated playbooks | Verify and escalate. Pair it with a code-side reversibility check. |
 | Remediation verification | Noul | Post-action telemetry for the same symptom | Verify and escalate. A second, independent judgment. |
-| Problem clustering | Score | The new postmortem and the existing problem records | Find and judge evidence. Rank, do not just say yes or no. |
+| Problem clustering | Score | The incident and what was done about it, and the existing problem records | Find and judge evidence. Rank, do not just say yes or no. |
 | Change-risk classification | Choice | The proposed change and past change outcomes | Route to auto-approve, normal approval or major approval. |
 | Design conformance check | Noul, one per control | The proposed design and the control framework | Verify and escalate. One Noul per control, because several can fail independently. |
 | Runbook relevance check | Score | Candidate runbook entries and the current symptoms | Find and judge evidence, so a human is not handed the whole knowledge base. |
@@ -72,6 +72,10 @@ Three things decide whether a step gets a human gate, however confident the mode
 | `Gateway_Resolved` | `verified = true`, from an independent Noul | Escalate to a human | A failed or unclear verification never retries silently. |
 | `Gateway_CSISignal` | `clusterScore >= 0.6` | Closed, with "no CSI action" recorded | A weak signal still gets a record, but does not spend a person's attention. |
 
+A cluster marked `"recurring": false` in `problem_clusters.json` stands for "not a recurring pattern". A strong match to it is a reason *not* to raise a problem, so the worker forces `clusterScore` to 0 when it is the best match.
+
+The record (`Task_Postmortem`) is written before the cluster check and the human CSI decision, so those two live in the process variables, not in the postmortem file.
+
 The thresholds in the lab (0.8, 0.7 for verify, 0.6) are starting points chosen for the demo. They were not derived from outcome data. Treat them as the first thing to measure and tune in a real deployment.
 
 ---
@@ -99,7 +103,8 @@ The lesson: a clean `bpmn-js` import is necessary but not sufficient. Only a liv
 4. `c8ctl activate jobs` returns a status object, not an empty list, when nothing is waiting. Code that iterates it crashes on the next job type. The fix is to normalise any non-list to `[]`.
 5. Counting shared words picks the wrong playbook. The first candidate selection chose `scale-out-web-tier` for a Redis incident, because words every playbook shares ("downstream", "is", "request") outvoted the few cache-specific ones. Weighting each word by `log(n / playbooks containing it)` fixes it. A real system would use embeddings here. The weighted overlap is a dependency-free stand-in that behaves the same at this size.
 6. `--fetchVariable` is an allow-list, not a default. Omit a name and the handler silently never sees it. An early postmortem lost the engineer's diagnosis this way, even though it existed in the process's scope the whole time. The worker now fetches the full set in `ALL_VARIABLES`. The lesson generalises: a job worker sees only the state it explicitly asked for.
-7. A hung `c8ctl` call froze the whole worker. It happened while preparing this repository for release. Every call now has a 30 second deadline, and the loop retries after an error. The engine re-activates an unfinished job after its timeout, so a job can run twice. Handlers should be safe to repeat.
+7. A hung `c8ctl` call froze the whole worker. It happened while preparing this repository for release. Every call now has a 30 second deadline, and the loop retries after an error.
+8. A failed TypeSafe call (a bad key, a rate limit, a timeout) used to end the worker. Now it fails only that job, with the error message, through the engine's own mechanism. The engine retries it, and when retries run out it raises an incident, which the viewer shows. Because the engine re-activates an unfinished job after its timeout, a job can run twice, so handlers must be safe to repeat. The simulated fix is seeded by the job key for this reason.
 
 ---
 

@@ -37,6 +37,7 @@ body[data-mode=plain] .twin,body[data-mode=tech] .twin{grid-template-columns:1fr
 #bpmn svg .djs-shape.st-idle:not([data-element-id^=Participant]):not([data-element-id^=Lane]){opacity:.55}
 #bpmn svg .djs-shape.st-active .djs-visual>*:first-child{stroke:#1565c0!important;stroke-width:4px!important;animation:pulse 1.2s ease-in-out infinite}
 #bpmn svg .djs-shape.st-done .djs-visual>*:first-child{stroke:#2e7d32!important;stroke-width:3px!important}
+#bpmn svg .djs-shape.st-stopped .djs-visual>*:first-child{stroke:#c62828!important;stroke-width:3px!important}
 #bpmn svg .djs-shape.focus .djs-visual>*:first-child{filter:drop-shadow(0 0 7px #1565c0)}
 #bpmn svg .djs-connection.fl-idle{opacity:.4}
 #bpmn svg .djs-connection.fl-done path{stroke:#2e7d32!important;stroke-width:3px!important}
